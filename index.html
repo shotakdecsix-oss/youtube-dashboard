@@ -342,12 +342,17 @@
         scope: SCOPES,
         callback: async (resp) => {
           if (resp.error) { showToast('ログインに失敗しました: ' + resp.error); return; }
-          accessToken = resp.access_token;
-          tokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
-          sessionStorage.setItem('yt_token', JSON.stringify({ token: accessToken, expiry: tokenExpiry }));
+          persistToken(resp);
           await onLoginSuccess();
         },
       });
+    }
+
+    function persistToken(resp) {
+      accessToken = resp.access_token;
+      tokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
+      localStorage.setItem('yt_token', JSON.stringify({ token: accessToken, expiry: tokenExpiry }));
+      localStorage.setItem('yt_logged_in_before', '1');
     }
 
     function login() {
@@ -357,12 +362,13 @@
     function logout() {
       if (accessToken) { try { google.accounts.oauth2.revoke(accessToken, () => {}); } catch {} }
       accessToken = null;
-      sessionStorage.removeItem('yt_token');
+      localStorage.removeItem('yt_token');
+      localStorage.removeItem('yt_logged_in_before');
       location.reload();
     }
 
     function restoreSession() {
-      const raw = sessionStorage.getItem('yt_token');
+      const raw = localStorage.getItem('yt_token');
       if (!raw) return false;
       try {
         const { token, expiry } = JSON.parse(raw);
@@ -371,14 +377,31 @@
       return false;
     }
 
+    // ブラウザのポップアップブロックに引っかからない範囲で、確認画面なしの再ログインを試みる
+    function trySilentLogin() {
+      return new Promise((resolve) => {
+        let settled = false;
+        tokenClient.callback = (resp) => {
+          if (settled) return;
+          settled = true;
+          if (resp.error) { resolve(false); return; }
+          persistToken(resp);
+          resolve(true);
+        };
+        try {
+          tokenClient.requestAccessToken({ prompt: '' });
+        } catch { resolve(false); return; }
+        // ポップアップブロック等で応答が来ない場合のフォールバック
+        setTimeout(() => { if (!settled) { settled = true; resolve(false); } }, 4000);
+      });
+    }
+
     async function ensureToken() {
       if (accessToken && Date.now() < tokenExpiry) return;
       await new Promise((resolve, reject) => {
         tokenClient.callback = (resp) => {
           if (resp.error) { reject(new Error(resp.error)); return; }
-          accessToken = resp.access_token;
-          tokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
-          sessionStorage.setItem('yt_token', JSON.stringify({ token: accessToken, expiry: tokenExpiry }));
+          persistToken(resp);
           resolve();
         };
         tokenClient.requestAccessToken({ prompt: '' });
@@ -470,34 +493,56 @@
       return scored.slice(0, n);
     }
 
-    async function searchDiscoveryForCategory(categoryId) {
-      const data = await ytFetch('search', {
-        part: 'snippet', type: 'video', videoCategoryId: categoryId,
-        order: 'viewCount', regionCode: 'JP', relevanceLanguage: 'ja',
-        safeSearch: 'moderate', maxResults: 10,
-      });
-      const items = (data.items || []).filter(it => !subscribedChannelIds.has(it.snippet.channelId));
-      const ids = items.map(it => it.id.videoId).filter(Boolean).slice(0, 8);
-      if (!ids.length) return [];
-      const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
-      return (vData.items || []).map(v => ({
+    // 動画の「評価」を推定するスコア（高評価率 × 再生数の対数）で並べ替える
+    function scoreVideo(v) {
+      const likeRatio = v.viewCount > 0 ? v.likeCount / v.viewCount : 0;
+      return likeRatio * Math.log10(v.viewCount + 10);
+    }
+
+    function mapVideoItem(v) {
+      const viewCount = Number(v.statistics?.viewCount || 0);
+      const likeCount = Number(v.statistics?.likeCount || 0);
+      return {
         videoId: v.id, title: v.snippet.title, channelTitle: v.snippet.channelTitle,
         channelId: v.snippet.channelId, thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.default?.url || '',
-        publishedAt: v.snippet.publishedAt, viewCount: v.statistics?.viewCount || 0,
+        publishedAt: v.snippet.publishedAt, viewCount, likeCount,
+        likeRatio: viewCount > 0 ? likeCount / viewCount : 0,
         duration: v.contentDetails?.duration || '', description: v.snippet.description || '',
-      }));
+      };
+    }
+
+    async function searchDiscoveryForCategory(categoryId) {
+      // order=viewCountだと「みんなが登録済みの超有名チャンネル」ばかりになり、
+      // 登録チャンネルとの重複除外で結果が空になりやすいため、直近の投稿から広く候補を集める
+      const publishedAfter = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+      const data = await ytFetch('search', {
+        part: 'snippet', type: 'video', videoCategoryId: categoryId,
+        order: 'date', regionCode: 'JP', relevanceLanguage: 'ja',
+        safeSearch: 'moderate', maxResults: 25, publishedAfter,
+      });
+      let items = (data.items || []).filter(it => it.id?.videoId && !subscribedChannelIds.has(it.snippet.channelId));
+      if (!items.length) return [];
+      const ids = items.map(it => it.id.videoId);
+      const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
+      let videos = (vData.items || []).map(mapVideoItem);
+      // 再生数が極端に少なすぎるものはノイズとして除外し、評価スコア順に並べる
+      videos = videos.filter(v => v.viewCount >= 100);
+      videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
+      return videos.slice(0, 8);
     }
 
     // ══════════════════════════════════════════
     // 新規開拓フロー
     // ══════════════════════════════════════════
+    const DISCOVERY_CACHE_VERSION = 2; // ロジック更新時にインクリメントして古いキャッシュを無効化する
+
     async function runDiscoveryFlow(force = false) {
       const statusEl = document.getElementById('discover-status');
       const cacheRaw = localStorage.getItem('yt_discovery_cache');
       if (!force && cacheRaw) {
         try {
           const cached = JSON.parse(cacheRaw);
-          if (Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
+          if (cached.version === DISCOVERY_CACHE_VERSION && Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
             discoveryCache = cached;
             genreHistogram = cached.genreHistogram || {};
             categoryMap = cached.categoryMap || {};
@@ -523,16 +568,18 @@
         genreHistogram = await buildGenreHistogram(subscriptions);
 
         statusEl.textContent = '新規開拓カテゴリの動画を探索中...';
-        const targets = pickUnderrepresentedCategories(5);
+        // 一部カテゴリは結果が空になることがあるため、多めに候補を用意して最大5ジャンル分集める
+        const targets = pickUnderrepresentedCategories(Math.min(10, Object.keys(categoryMap).length));
         const groups = [];
         for (const t of targets) {
+          if (groups.length >= 5) break;
           try {
             const videos = await searchDiscoveryForCategory(t.id);
             if (videos.length) groups.push({ categoryId: t.id, categoryTitle: t.title, videos });
           } catch (e) { console.warn('discovery search failed', t.title, e.message); }
         }
 
-        discoveryCache = { timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions };
+        discoveryCache = { version: DISCOVERY_CACHE_VERSION, timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions };
         localStorage.setItem('yt_discovery_cache', JSON.stringify(discoveryCache));
 
         statusEl.textContent = `${subscriptions.length}件の登録チャンネルを分析 → ${groups.length}ジャンルから新規開拓を提案`;
@@ -644,13 +691,8 @@
             const ids = (data.items || []).map(it => it.id.videoId).filter(Boolean);
             if (!ids.length) continue;
             const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
-            const videos = (vData.items || []).map(v => ({
-              videoId: v.id, title: v.snippet.title, channelTitle: v.snippet.channelTitle,
-              channelId: v.snippet.channelId, thumb: v.snippet.thumbnails?.medium?.url || '',
-              publishedAt: v.snippet.publishedAt, viewCount: v.statistics?.viewCount || 0,
-              duration: v.contentDetails?.duration || '', description: v.snippet.description || '',
-              reason: q.reason,
-            }));
+            let videos = (vData.items || []).map(v => ({ ...mapVideoItem(v), reason: q.reason }));
+            videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
             groups.push({ query: q.query, reason: q.reason, videos });
           } catch (e) { console.warn('ai search query failed', q.query, e.message); }
         }
@@ -713,7 +755,7 @@
           <div class="body">
             <div class="title">${esc(v.title)}</div>
             <div class="channel">${esc(v.channelTitle || '')}</div>
-            ${v.viewCount ? `<div class="meta">👁 ${fmtNum(v.viewCount)}回視聴</div>` : ''}
+            ${v.viewCount ? `<div class="meta">👁 ${fmtNum(v.viewCount)}回視聴${v.likeRatio ? ` ・ 👍 ${(v.likeRatio * 100).toFixed(1)}%` : ''}</div>` : ''}
             ${v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : ''}
           </div>
         </div>`;
@@ -746,7 +788,7 @@
       body.innerHTML = `
         <h2>${esc(v.title)}</h2>
         <div class="channel-line">${esc(v.channelTitle || '')}</div>
-        <div class="meta-line">${v.viewCount ? fmtNum(v.viewCount) + '回視聴　' : ''}${v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('ja-JP') : ''}</div>
+        <div class="meta-line">${v.viewCount ? fmtNum(v.viewCount) + '回視聴　' : ''}${v.likeRatio ? '高評価率 ' + (v.likeRatio * 100).toFixed(1) + '%　' : ''}${v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('ja-JP') : ''}</div>
         <div class="desc" id="detail-desc">${esc(v.description || '説明はありません')}</div>
         <span class="desc-toggle" id="detail-desc-toggle">もっと見る</span>
         <div class="modal-actions">
@@ -810,11 +852,19 @@
       document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
       document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDetail(); closeSettings(); } });
 
-      const gisReady = setInterval(() => {
+      const gisReady = setInterval(async () => {
         if (window.google?.accounts?.oauth2) {
           clearInterval(gisReady);
           initGis();
-          if (restoreSession()) { onLoginSuccess(); }
+          if (restoreSession()) {
+            await onLoginSuccess();
+            return;
+          }
+          // 以前ログイン済みなら、確認画面を出さずに自動再ログインを試みる
+          if (localStorage.getItem('yt_logged_in_before') === '1') {
+            const ok = await trySilentLogin();
+            if (ok) { await onLoginSuccess(); }
+          }
         }
       }, 100);
     });
