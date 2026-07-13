@@ -355,7 +355,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 21:16 JST</div>
+  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/14 02:20 JST</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
@@ -496,34 +496,43 @@
     }
 
     // ブラウザのポップアップブロックに引っかからない範囲で、確認画面なしの再ログインを試みる
-    function trySilentLogin() {
-      return new Promise((resolve) => {
+    // トークン取得は同時に複数走らせない（並列APIコールがtokenClient.callbackを取り合って
+    // 片方が永久に応答なしになる不具合＝「突然ログイン画面に戻る」原因の一つだったため、1本化する）
+    let tokenRequestPromise = null;
+    function requestTokenSilently() {
+      if (tokenRequestPromise) return tokenRequestPromise;
+      tokenRequestPromise = new Promise((resolve) => {
         let settled = false;
-        tokenClient.callback = (resp) => {
+        const finish = (ok) => {
           if (settled) return;
           settled = true;
-          if (resp.error) { resolve(false); return; }
+          tokenRequestPromise = null;
+          resolve(ok);
+        };
+        tokenClient.callback = (resp) => {
+          if (resp.error) { finish(false); return; }
           persistToken(resp);
-          resolve(true);
+          finish(true);
         };
         try {
           tokenClient.requestAccessToken({ prompt: '' });
-        } catch { resolve(false); return; }
+        } catch { finish(false); return; }
         // ポップアップブロック等で応答が来ない場合のフォールバック
-        setTimeout(() => { if (!settled) { settled = true; resolve(false); } }, 4000);
+        setTimeout(() => finish(false), 4000);
       });
+      return tokenRequestPromise;
     }
+
+    function trySilentLogin() { return requestTokenSilently(); }
 
     async function ensureToken() {
       if (accessToken && Date.now() < tokenExpiry) return;
-      await new Promise((resolve, reject) => {
-        tokenClient.callback = (resp) => {
-          if (resp.error) { reject(new Error(resp.error)); return; }
-          persistToken(resp);
-          resolve();
-        };
-        tokenClient.requestAccessToken({ prompt: '' });
-      });
+      const ok = await requestTokenSilently();
+      if (!ok) {
+        // 自動延長できなかった場合はログイン画面を出し直し、ワンクリックで再開できるようにする
+        document.getElementById('login-overlay')?.classList.remove('hide');
+        throw new Error('セッションが切れました。再度ログインしてください。');
+      }
     }
 
     async function onLoginSuccess() {
@@ -1334,6 +1343,14 @@ ${contextPrompt}
           }
         }
       }, 100);
+
+      // アクセストークンは約1時間で失効するため、使用中に切れて操作が中断されないよう
+      // 表示中のタブでは期限前に静かに延長しておく
+      setInterval(() => {
+        if (accessToken && document.visibilityState === 'visible') {
+          ensureToken().catch(() => {}); // 失敗時はensureToken内でログイン画面を出し直す
+        }
+      }, 50 * 60 * 1000);
     });
   </script>
 </body>
