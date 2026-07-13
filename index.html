@@ -51,22 +51,26 @@
     padding: 0 20px; height: 54px; display: flex; align-items: center; gap: 16px;
     position: sticky; top: 0; z-index: 100;
   }
-  .logo { font-size: 1.05rem; font-weight: 700; color: var(--accent); white-space: nowrap; }
-  .tabs { display: flex; background: var(--bg3); border-radius: 999px; padding: 3px; gap: 2px; }
+  .logo { font-size: 1.05rem; font-weight: 700; color: var(--accent); white-space: nowrap; flex-shrink: 0; }
+  .tabs {
+    display: flex; background: var(--bg3); border-radius: 999px; padding: 3px; gap: 2px;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; min-width: 0;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
   .tab-btn {
-    background: transparent; border: none; color: var(--text2); padding: 7px 14px;
-    border-radius: 999px; font-size: .8rem; cursor: pointer; white-space: nowrap; transition: all .15s;
+    background: transparent; border: none; color: var(--text2); padding: 8px 14px;
+    border-radius: 999px; font-size: .8rem; cursor: pointer; white-space: nowrap; transition: all .15s; flex-shrink: 0;
   }
   .tab-btn.active { background: var(--accent); color: #fff; }
-  .header-spacer { flex: 1; }
+  .header-spacer { flex: 1 1 8px; min-width: 8px; }
   .icon-btn {
     background: var(--bg3); border: 1px solid var(--border); color: var(--text);
-    width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: 1rem;
-    display: flex; align-items: center; justify-content: center; transition: border .15s;
+    width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center; transition: border .15s; flex-shrink: 0;
   }
   .icon-btn:hover { border-color: var(--accent); }
-  .header-right { display: flex; align-items: center; gap: 8px; }
-  .avatar { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; flex-shrink: 0; }
 
   .subheader {
     background: var(--bg2); border-bottom: 1px solid var(--border);
@@ -91,6 +95,19 @@
     border-radius: 999px; padding: 2px 10px; font-size: .72rem; font-weight: 600;
   }
   .section-desc { color: var(--text2); font-size: .78rem; margin-bottom: 12px; }
+
+  /* ── 並べ替え・フィルタ ツールバー ── */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .select-small {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 7px 10px; border-radius: 8px; font-size: .78rem; outline: none; flex-shrink: 0;
+  }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text2);
+    padding: 6px 12px; border-radius: 999px; font-size: .72rem; cursor: pointer; white-space: nowrap;
+  }
+  .chip.active { background: rgba(255,59,59,.15); border-color: var(--accent); color: var(--accent); }
 
   /* ── GRID / CARDS ── */
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
@@ -197,12 +214,30 @@
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   @media (max-width: 640px) {
-    header { padding: 0 12px; gap: 10px; }
-    .logo { font-size: .9rem; }
-    .tab-btn { padding: 6px 10px; font-size: .74rem; }
-    .subheader { padding: 8px 12px; }
-    main { padding: 14px; }
-    .genre-row .label { width: 90px; font-size: .72rem; }
+    header { padding: 0 10px; gap: 8px; height: 50px; }
+    .logo { font-size: .82rem; }
+    .tab-btn { padding: 7px 11px; font-size: .72rem; }
+    .subheader { padding: 8px 10px; top: 50px; }
+    .subheader .btn-small { padding: 7px 12px; }
+    main { padding: 10px; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .vcard .title { font-size: .76rem; min-height: 2.1em; }
+    .vcard .body { padding: 8px 9px; }
+    .vcard .meta, .vcard .channel { font-size: .66rem; }
+    .vcard .fav-btn { width: 32px; height: 32px; font-size: 1rem; }
+    .genre-row .label { width: 84px; font-size: .7rem; }
+    .toolbar { gap: 6px; }
+    .select-small { padding: 8px 10px; font-size: .76rem; }
+    .modal-body { padding: 14px 16px; }
+    .modal-body h2 { font-size: .95rem; }
+    .modal-actions { flex-wrap: wrap; }
+    .modal-actions .btn-outline { flex: 1 1 auto; text-align: center; }
+  }
+
+  @media (max-width: 400px) {
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .logo { font-size: 0; }
+    .logo::before { content: '🎬'; font-size: 1.2rem; }
   }
 </style>
 </head>
@@ -294,7 +329,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 17:40 JST</div>
+  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 17:58 JST</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
@@ -532,10 +567,26 @@
       return videos.slice(0, 8);
     }
 
+    // カテゴリ別検索が軒並み空振りした場合の切り分け・保険用フォールバック
+    async function searchDiscoveryFallback() {
+      const publishedAfter = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      const data = await ytFetch('search', {
+        part: 'snippet', type: 'video', order: 'viewCount', regionCode: 'JP',
+        relevanceLanguage: 'ja', safeSearch: 'moderate', maxResults: 25, publishedAfter, q: '話題',
+      });
+      let items = (data.items || []).filter(it => it.id?.videoId && !subscribedChannelIds.has(it.snippet.channelId));
+      if (!items.length) return [];
+      const ids = items.map(it => it.id.videoId);
+      const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
+      let videos = (vData.items || []).map(mapVideoItem);
+      videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
+      return videos.slice(0, 12);
+    }
+
     // ══════════════════════════════════════════
     // 新規開拓フロー
     // ══════════════════════════════════════════
-    const DISCOVERY_CACHE_VERSION = 2; // ロジック更新時にインクリメントして古いキャッシュを無効化する
+    const DISCOVERY_CACHE_VERSION = 3; // ロジック更新時にインクリメントして古いキャッシュを無効化する
 
     async function runDiscoveryFlow(force = false) {
       const statusEl = document.getElementById('discover-status');
@@ -572,15 +623,32 @@
         // 一部カテゴリは結果が空になることがあるため、多めに候補を用意して最大5ジャンル分集める
         const targets = pickUnderrepresentedCategories(Math.min(10, Object.keys(categoryMap).length));
         const groups = [];
+        const errors = [];
         for (const t of targets) {
           if (groups.length >= 5) break;
           try {
             const videos = await searchDiscoveryForCategory(t.id);
             if (videos.length) groups.push({ categoryId: t.id, categoryTitle: t.title, videos });
-          } catch (e) { console.warn('discovery search failed', t.title, e.message); }
+            else errors.push(`${t.title}: 該当する動画が見つかりませんでした`);
+          } catch (e) {
+            console.warn('discovery search failed', t.title, e.message);
+            errors.push(`${t.title}: ${e.message}`);
+          }
         }
 
-        discoveryCache = { version: DISCOVERY_CACHE_VERSION, timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions };
+        // カテゴリ別検索が全滅した場合の保険（原因切り分け＋最低限の結果確保）
+        if (!groups.length) {
+          try {
+            const fallback = await searchDiscoveryFallback();
+            if (fallback.length) groups.push({ categoryId: '', categoryTitle: '注目の動画', videos: fallback });
+            else errors.push('フォールバック検索でも動画が見つかりませんでした');
+          } catch (e) {
+            console.warn('discovery fallback failed', e.message);
+            errors.push(`フォールバック検索エラー: ${e.message}`);
+          }
+        }
+
+        discoveryCache = { version: DISCOVERY_CACHE_VERSION, timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions, errors };
         localStorage.setItem('yt_discovery_cache', JSON.stringify(discoveryCache));
 
         statusEl.textContent = `${subscriptions.length}件の登録チャンネルを分析 → ${groups.length}ジャンルから新規開拓を提案`;
@@ -592,19 +660,64 @@
       }
     }
 
+    // ── 並べ替え・フィルタ状態（新規開拓／お気に入り共通） ──
+    let discoverSort = localStorage.getItem('yt_discover_sort') || 'score';
+    let discoverCategoryFilter = new Set();
+
+    function sortKey(v, mode) {
+      if (mode === 'date') return new Date(v.publishedAt || 0).getTime();
+      if (mode === 'views') return v.viewCount || 0;
+      return scoreVideo(v); // 'score' = 評価順（高評価率×再生数）
+    }
+    const SORT_LABELS = { score: '評価順', date: '新着順', views: '再生数順' };
+
+    function sortToolbarHtml(selectId, chips, currentSort, activeFilterSet) {
+      return `
+        <div class="toolbar">
+          <select id="${selectId}" class="select-small">
+            ${Object.entries(SORT_LABELS).map(([v, label]) => `<option value="${v}" ${currentSort === v ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+          ${chips.length ? `<div class="chip-row">${chips.map(c => `<button class="chip ${activeFilterSet.has(c) ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
+        </div>`;
+    }
+
     function renderDiscoverTab() {
       const el = document.getElementById('tab-discover');
       const groups = discoveryCache?.groups || [];
       if (!groups.length) {
-        el.innerHTML = `<div class="empty-state"><div class="emoji">🔍</div>新規開拓できる動画が見つかりませんでした。更新ボタンで再試行してください。</div>`;
+        const errs = discoveryCache?.errors || [];
+        const errHtml = errs.length ? `<div style="margin-top:14px;font-size:.72rem;color:var(--text2);text-align:left;max-width:420px;margin-inline:auto;line-height:1.6;">${errs.slice(0, 4).map(e => esc(e)).join('<br>')}</div>` : '';
+        el.innerHTML = `<div class="empty-state"><div class="emoji">🔍</div>新規開拓できる動画が見つかりませんでした。更新ボタンで再試行してください。${errHtml}</div>`;
         return;
       }
-      el.innerHTML = groups.map(g => `
-        <div class="section-title">${esc(g.categoryTitle)} <span class="cat-tag">新規開拓</span></div>
-        <div class="section-desc">あなたの登録チャンネルではあまり見かけないジャンルです</div>
-        <div class="grid">${g.videos.map(v => vcardHtml(v)).join('')}</div>
-      `).join('');
+
+      // ジャンルごとのグループをフラット化してタグ付け（並べ替え・フィルタしやすくするため）
+      let all = [];
+      groups.forEach(g => g.videos.forEach(v => all.push({ ...v, tag: g.categoryTitle })));
+      const cats = [...new Set(groups.map(g => g.categoryTitle))];
+
+      if (discoverCategoryFilter.size) all = all.filter(v => discoverCategoryFilter.has(v.tag));
+      all.sort((a, b) => sortKey(b, discoverSort) - sortKey(a, discoverSort));
+
+      el.innerHTML = `
+        ${sortToolbarHtml('discover-sort-select', cats, discoverSort, discoverCategoryFilter)}
+        <div class="section-desc">${all.length}件 ・ あなたの登録チャンネルではあまり見かけないジャンルから発掘</div>
+        <div class="grid">${all.map(v => vcardHtml(v)).join('')}</div>
+      `;
       bindCardEvents(el);
+
+      document.getElementById('discover-sort-select').addEventListener('change', (e) => {
+        discoverSort = e.target.value;
+        localStorage.setItem('yt_discover_sort', discoverSort);
+        renderDiscoverTab();
+      });
+      el.querySelectorAll('.chip[data-cat]').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const c = chip.dataset.cat;
+          if (discoverCategoryFilter.has(c)) discoverCategoryFilter.delete(c); else discoverCategoryFilter.add(c);
+          renderDiscoverTab();
+        });
+      });
     }
 
     function renderChannelsTab() {
@@ -698,16 +811,53 @@
           } catch (e) { console.warn('ai search query failed', q.query, e.message); }
         }
 
-        result.innerHTML = groups.map(g => `
-          <div class="section-title">${esc(g.query)} <span class="cat-tag">${esc(g.reason)}</span></div>
-          <div class="grid">${g.videos.map(v => vcardHtml(v, true)).join('')}</div>
-        `).join('') || `<div class="empty-state"><div class="emoji">🤔</div>結果が見つかりませんでした。別の言葉で試してください。</div>`;
-        bindCardEvents(result);
+        aiResultGroups = groups;
+        aiQueryFilter = new Set();
+        renderAiResults();
       } catch (err) {
         result.innerHTML = `<div class="empty-state" style="color:var(--danger)">エラー: ${esc(err.message)}</div>`;
       } finally {
         btn.disabled = false; btn.textContent = '✨ AIに探してもらう';
       }
+    }
+
+    // ── AI検索結果も新規開拓と同じ並べ替え・フィルタで表示 ──
+    let aiResultGroups = [];
+    let aiSort = localStorage.getItem('yt_ai_sort') || 'score';
+    let aiQueryFilter = new Set();
+
+    function renderAiResults() {
+      const result = document.getElementById('ai-result');
+      if (!aiResultGroups.length) {
+        result.innerHTML = `<div class="empty-state"><div class="emoji">🤔</div>結果が見つかりませんでした。別の言葉で試してください。</div>`;
+        return;
+      }
+      let all = [];
+      aiResultGroups.forEach(g => g.videos.forEach(v => all.push({ ...v, queryLabel: g.query })));
+      const queries = [...new Set(aiResultGroups.map(g => g.query))];
+
+      if (aiQueryFilter.size) all = all.filter(v => aiQueryFilter.has(v.queryLabel));
+      all.sort((a, b) => sortKey(b, aiSort) - sortKey(a, aiSort));
+
+      result.innerHTML = `
+        ${sortToolbarHtml('ai-sort-select', queries, aiSort, aiQueryFilter)}
+        <div class="section-desc">${all.length}件</div>
+        <div class="grid">${all.map(v => vcardHtml(v)).join('')}</div>
+      `;
+      bindCardEvents(result);
+
+      document.getElementById('ai-sort-select').addEventListener('change', (e) => {
+        aiSort = e.target.value;
+        localStorage.setItem('yt_ai_sort', aiSort);
+        renderAiResults();
+      });
+      result.querySelectorAll('.chip[data-cat]').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const c = chip.dataset.cat;
+          if (aiQueryFilter.has(c)) aiQueryFilter.delete(c); else aiQueryFilter.add(c);
+          renderAiResults();
+        });
+      });
     }
 
     // ══════════════════════════════════════════
@@ -722,7 +872,12 @@
       if (isFavorite(v.videoId)) {
         favorites = favorites.filter(f => f.videoId !== v.videoId);
       } else {
-        favorites.unshift({ videoId: v.videoId, title: v.title, channelTitle: v.channelTitle, thumb: v.thumb, addedAt: Date.now() });
+        favorites.unshift({
+          videoId: v.videoId, title: v.title, channelTitle: v.channelTitle, channelId: v.channelId, thumb: v.thumb,
+          viewCount: v.viewCount || 0, likeCount: v.likeCount || 0, likeRatio: v.likeRatio || 0,
+          publishedAt: v.publishedAt || '', duration: v.duration || '', description: v.description || '',
+          addedAt: Date.now(),
+        });
       }
       saveFavorites();
       document.querySelectorAll(`.vcard[data-id="${v.videoId}"] .fav-btn`).forEach(b => b.classList.toggle('active', isFavorite(v.videoId)));
@@ -730,14 +885,33 @@
       if (modalFav && modalFav.dataset.id === v.videoId) modalFav.classList.toggle('active', isFavorite(v.videoId));
       if (document.getElementById('tab-favorites').classList.contains('active')) renderFavoritesTab();
     }
+    let favoritesSort = localStorage.getItem('yt_favorites_sort') || 'date';
     function renderFavoritesTab() {
       const el = document.getElementById('tab-favorites');
       if (!favorites.length) {
         el.innerHTML = `<div class="empty-state"><div class="emoji">⭐</div>お気に入りはまだありません。動画カードの★ボタンで追加できます。</div>`;
         return;
       }
-      el.innerHTML = `<div class="section-title">⭐ お気に入り（${favorites.length}件）</div><div class="grid">${favorites.map(v => vcardHtml(v)).join('')}</div>`;
+      const sorted = [...favorites].sort((a, b) => {
+        if (favoritesSort === 'added') return b.addedAt - a.addedAt;
+        return sortKey(b, favoritesSort) - sortKey(a, favoritesSort);
+      });
+      el.innerHTML = `
+        <div class="section-title">⭐ お気に入り（${favorites.length}件）</div>
+        <div class="toolbar">
+          <select id="favorites-sort-select" class="select-small">
+            <option value="added" ${favoritesSort === 'added' ? 'selected' : ''}>追加順</option>
+            ${Object.entries(SORT_LABELS).map(([v, label]) => `<option value="${v}" ${favoritesSort === v ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="grid">${sorted.map(v => vcardHtml(v)).join('')}</div>
+      `;
       bindCardEvents(el);
+      document.getElementById('favorites-sort-select').addEventListener('change', (e) => {
+        favoritesSort = e.target.value;
+        localStorage.setItem('yt_favorites_sort', favoritesSort);
+        renderFavoritesTab();
+      });
     }
 
     // ══════════════════════════════════════════
@@ -757,7 +931,7 @@
             <div class="title">${esc(v.title)}</div>
             <div class="channel">${esc(v.channelTitle || '')}</div>
             ${v.viewCount ? `<div class="meta">👁 ${fmtNum(v.viewCount)}回視聴${v.likeRatio ? ` ・ 👍 ${(v.likeRatio * 100).toFixed(1)}%` : ''}</div>` : ''}
-            ${v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : ''}
+            ${v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : (v.tag ? `<div class="reason">🏷 ${esc(v.tag)}</div>` : '')}
           </div>
         </div>`;
     }
