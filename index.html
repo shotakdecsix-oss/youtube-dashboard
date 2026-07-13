@@ -329,7 +329,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 17:58 JST</div>
+  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 20:41 JST</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
@@ -547,38 +547,26 @@
       };
     }
 
+    // search.list は1回100ユニット消費し、1日の無料枠(10,000ユニット)をすぐ使い切ってしまう。
+    // videos.list(chart=mostPopular)は1回1ユニットで済むため、カテゴリ別の急上昇動画取得はこちらに統一する。
     async function searchDiscoveryForCategory(categoryId) {
-      // order=viewCountだと「みんなが登録済みの超有名チャンネル」ばかりになり、
-      // 登録チャンネルとの重複除外で結果が空になりやすいため、直近の投稿から広く候補を集める
-      const publishedAfter = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
-      const data = await ytFetch('search', {
-        part: 'snippet', type: 'video', videoCategoryId: categoryId,
-        order: 'date', regionCode: 'JP', relevanceLanguage: 'ja',
-        safeSearch: 'moderate', maxResults: 25, publishedAfter,
+      const data = await ytFetch('videos', {
+        part: 'snippet,statistics,contentDetails', chart: 'mostPopular',
+        videoCategoryId: categoryId, regionCode: 'JP', maxResults: 25,
       });
-      let items = (data.items || []).filter(it => it.id?.videoId && !subscribedChannelIds.has(it.snippet.channelId));
-      if (!items.length) return [];
-      const ids = items.map(it => it.id.videoId);
-      const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
-      let videos = (vData.items || []).map(mapVideoItem);
-      // 再生数が極端に少なすぎるものはノイズとして除外し、評価スコア順に並べる
-      videos = videos.filter(v => v.viewCount >= 100);
+      let videos = (data.items || []).map(mapVideoItem)
+        .filter(v => !subscribedChannelIds.has(v.channelId) && v.viewCount >= 100);
       videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
       return videos.slice(0, 8);
     }
 
-    // カテゴリ別検索が軒並み空振りした場合の切り分け・保険用フォールバック
+    // カテゴリ別が軒並み空振りした場合の保険（こちらも1ユニットのみ消費）
     async function searchDiscoveryFallback() {
-      const publishedAfter = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
-      const data = await ytFetch('search', {
-        part: 'snippet', type: 'video', order: 'viewCount', regionCode: 'JP',
-        relevanceLanguage: 'ja', safeSearch: 'moderate', maxResults: 25, publishedAfter, q: '話題',
+      const data = await ytFetch('videos', {
+        part: 'snippet,statistics,contentDetails', chart: 'mostPopular', regionCode: 'JP', maxResults: 25,
       });
-      let items = (data.items || []).filter(it => it.id?.videoId && !subscribedChannelIds.has(it.snippet.channelId));
-      if (!items.length) return [];
-      const ids = items.map(it => it.id.videoId);
-      const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
-      let videos = (vData.items || []).map(mapVideoItem);
+      let videos = (data.items || []).map(mapVideoItem)
+        .filter(v => !subscribedChannelIds.has(v.channelId) && v.viewCount >= 100);
       videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
       return videos.slice(0, 12);
     }
@@ -586,7 +574,7 @@
     // ══════════════════════════════════════════
     // 新規開拓フロー
     // ══════════════════════════════════════════
-    const DISCOVERY_CACHE_VERSION = 3; // ロジック更新時にインクリメントして古いキャッシュを無効化する
+    const DISCOVERY_CACHE_VERSION = 4; // ロジック更新時にインクリメントして古いキャッシュを無効化する
 
     async function runDiscoveryFlow(force = false) {
       const statusEl = document.getElementById('discover-status');
