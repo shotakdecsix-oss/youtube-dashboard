@@ -1,0 +1,14 @@
+{
+  "name": "YouTube発見 — おすすめの外側を探す",
+  "short_name": "YouTube発見",
+  "description": "登録チャンネルの偏りを分析し、まだ見ていないジャンルの動画を発掘するアプリ",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f0f1a",
+  "theme_color": "#ff3b3b",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
