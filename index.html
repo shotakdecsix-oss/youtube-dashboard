@@ -329,7 +329,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 20:41 JST</div>
+  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 21:01 JST</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
@@ -651,13 +651,15 @@
     // ── 並べ替え・フィルタ状態（新規開拓／お気に入り共通） ──
     let discoverSort = localStorage.getItem('yt_discover_sort') || 'score';
     let discoverCategoryFilter = new Set();
+    let aiVideoInsights = {}; // videoId -> {reason, score}（概要文を読んだAIの一言コメント）
 
     function sortKey(v, mode) {
       if (mode === 'date') return new Date(v.publishedAt || 0).getTime();
       if (mode === 'views') return v.viewCount || 0;
+      if (mode === 'ai') return aiVideoInsights[v.videoId]?.score ?? -1;
       return scoreVideo(v); // 'score' = 評価順（高評価率×再生数）
     }
-    const SORT_LABELS = { score: '評価順', date: '新着順', views: '再生数順' };
+    const SORT_LABELS = { score: '評価順', date: '新着順', views: '再生数順', ai: 'AIおすすめ順' };
 
     function sortToolbarHtml(selectId, chips, currentSort, activeFilterSet) {
       return `
@@ -687,8 +689,14 @@
       if (discoverCategoryFilter.size) all = all.filter(v => discoverCategoryFilter.has(v.tag));
       all.sort((a, b) => sortKey(b, discoverSort) - sortKey(a, discoverSort));
 
+      const analyzedCount = all.filter(v => aiVideoInsights[v.videoId]).length;
+      const aiBtnLabel = analyzedCount === all.length && all.length ? '🤖 AI解説を更新' : '🤖 AIで解説する';
+
       el.innerHTML = `
         ${sortToolbarHtml('discover-sort-select', cats, discoverSort, discoverCategoryFilter)}
+        <div class="toolbar" style="margin-top:-4px;">
+          <button class="btn-outline" id="discover-ai-btn">${aiBtnLabel}</button>
+        </div>
         <div class="section-desc">${all.length}件 ・ あなたの登録チャンネルではあまり見かけないジャンルから発掘</div>
         <div class="grid">${all.map(v => vcardHtml(v)).join('')}</div>
       `;
@@ -706,6 +714,25 @@
           renderDiscoverTab();
         });
       });
+      document.getElementById('discover-ai-btn').addEventListener('click', () => runDiscoverAiAnalysis(all));
+    }
+
+    async function runDiscoverAiAnalysis(videos) {
+      if (!claudeKey) { showToast('Claude APIキーを設定してください'); openSettings(); return; }
+      if (!videos || !videos.length) return;
+      const btn = document.getElementById('discover-ai-btn');
+      if (btn) { btn.disabled = true; btn.textContent = '🤖 分析中...'; }
+      try {
+        const insights = await aiRankVideos(videos, 'これらはユーザーの登録チャンネルにはない新しいジャンルの動画です。なぜ見る価値がありそうか。');
+        aiVideoInsights = { ...aiVideoInsights, ...insights };
+        discoverSort = 'ai';
+        localStorage.setItem('yt_discover_sort', discoverSort);
+        renderDiscoverTab();
+        showToast('AI解説が完了しました');
+      } catch (e) {
+        showToast('AI解説に失敗しました: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '🤖 AIで解説する'; }
+      }
     }
 
     function renderChannelsTab() {
@@ -764,6 +791,29 @@
       return d.content[0].text.trim();
     }
 
+    // 候補動画をまとめて1回のリクエストで送り、概要文まで読んだ一言コメント＋スコアを取得する。
+    // 動画データ（タイトル・概要）はすでにYouTube APIから取得済みのものを使うため、YouTube側のクォータは一切追加消費しない。
+    async function aiRankVideos(videos, contextPrompt) {
+      if (!videos.length) return {};
+      const payload = videos.map(v => ({
+        id: v.videoId,
+        title: v.title,
+        channel: v.channelTitle,
+        desc: (v.description || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+      }));
+      const sysPrompt = `あなたはYouTube動画の目利きです。以下は候補動画のJSON配列（タイトル・チャンネル名・概要文の抜粋）です。
+${contextPrompt}
+各動画について、一言コメント（reason、日本語20〜25字程度、概要文の内容も踏まえること）と、おすすめ度スコア（score、0〜100の整数）を付けてください。
+必ず入力と同じ id を使い、以下のJSON配列のみを返してください（説明文・マークダウン不要）:
+[{"id":"動画ID","reason":"一言コメント","score":85}]`;
+      const text = await callClaude(sysPrompt, JSON.stringify(payload), 2000);
+      const clean = text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '');
+      const arr = JSON.parse(clean);
+      const map = {};
+      arr.forEach(item => { if (item.id) map[item.id] = { reason: item.reason || '', score: Number(item.score) || 0 }; });
+      return map;
+    }
+
     async function doAiSearch() {
       if (!claudeKey) { showToast('Claude APIキーを設定してください'); openSettings(); return; }
       const mood = document.getElementById('mood-input').value.trim();
@@ -801,6 +851,20 @@
 
         aiResultGroups = groups;
         aiQueryFilter = new Set();
+
+        // 検索結果の概要文をまとめて読み、動画ごとにパーソナライズした一言コメントを付与する
+        const allVideos = [];
+        groups.forEach(g => g.videos.forEach(v => allVideos.push(v)));
+        if (allVideos.length) {
+          result.innerHTML = `<div class="loading-row"><div class="spinner"></div>AIが動画の概要を読んで評価中...</div>`;
+          try {
+            const insights = await aiRankVideos(allVideos, `ユーザーの気分・興味「${mood}」に本当に合いそうか。`);
+            aiVideoInsights = { ...aiVideoInsights, ...insights };
+            aiSort = 'ai';
+            localStorage.setItem('yt_ai_sort', aiSort);
+          } catch (e) { console.warn('ai video ranking failed', e.message); }
+        }
+
         renderAiResults();
       } catch (err) {
         result.innerHTML = `<div class="empty-state" style="color:var(--danger)">エラー: ${esc(err.message)}</div>`;
@@ -919,7 +983,7 @@
             <div class="title">${esc(v.title)}</div>
             <div class="channel">${esc(v.channelTitle || '')}</div>
             ${v.viewCount ? `<div class="meta">👁 ${fmtNum(v.viewCount)}回視聴${v.likeRatio ? ` ・ 👍 ${(v.likeRatio * 100).toFixed(1)}%` : ''}</div>` : ''}
-            ${v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : (v.tag ? `<div class="reason">🏷 ${esc(v.tag)}</div>` : '')}
+            ${aiVideoInsights[v.videoId] ? `<div class="reason">🤖 ${esc(aiVideoInsights[v.videoId].reason)}</div>` : (v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : (v.tag ? `<div class="reason">🏷 ${esc(v.tag)}</div>` : ''))}
           </div>
         </div>`;
     }
