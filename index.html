@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🎬 YouTube発見 — おすすめの外側を探す</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#ff3b3b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="YouTube発見">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root {
     --bg: #0f0f1a;
@@ -128,6 +136,12 @@
     display: flex; align-items: center; justify-content: center;
   }
   .vcard .fav-btn.active { color: var(--gold); }
+  .vcard .exclude-btn {
+    position: absolute; top: 40px; right: 6px; background: rgba(0,0,0,.6); border: none;
+    width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: .8rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; opacity: .55; transition: opacity .15s;
+  }
+  .vcard .exclude-btn:hover { opacity: 1; }
   .vcard .body { padding: 10px 12px; }
   .vcard .title { font-size: .82rem; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.2em; }
   .vcard .channel { font-size: .72rem; color: var(--text2); margin-top: 6px; display: flex; align-items: center; gap: 6px; }
@@ -254,7 +268,7 @@
         <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.85 2.09-1.8 2.73v2.27h2.92c1.7-1.57 2.68-3.88 2.68-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.17l-2.92-2.27c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.34C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.97 10.72c-.18-.54-.28-1.12-.28-1.72s.1-1.18.28-1.72V4.94H.96C.35 6.17 0 7.55 0 9s.35 2.83.96 4.06l3.01-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.94l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
         Googleでログイン
       </button>
-      <div class="login-note">読み取り専用（登録チャンネル情報）のみ利用します。動画の投稿や登録の変更は行いません。</div>
+      <div class="login-note">登録チャンネル情報の読み取りと、アプリ専用の「YouTube発見 お気に入り」プレイリストへの追加のみ行います。登録チャンネルの変更や動画の投稿は行いません。</div>
     </div>
   </div>
 
@@ -313,12 +327,24 @@
 
   <!-- ── 設定オーバーレイ ── -->
   <div class="overlay" id="settings-overlay">
-    <div class="setup-box">
+    <div class="setup-box" style="max-height:85vh;overflow-y:auto;">
       <h2>⚙ 設定</h2>
       <div class="form-group">
         <label>Claude APIキー（AI機能用）</label>
         <input type="password" id="claude-key-input" placeholder="sk-ant-...">
         <div class="hint">→ <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> で取得。ブラウザのlocalStorageにのみ保存され、外部送信されません。</div>
+      </div>
+      <div class="form-group">
+        <label>地域（新規開拓・AI検索の対象国）</label>
+        <select id="region-select" class="select-small" style="width:100%;"></select>
+        <div class="hint">変更すると新規開拓のキャッシュがリセットされます</div>
+      </div>
+      <div class="form-group">
+        <label id="quota-badge" style="display:block;font-size:.78rem;color:var(--text2);">本日の推定API使用量: - / 10,000 ユニット</label>
+      </div>
+      <div class="form-group">
+        <label>除外中のチャンネル</label>
+        <div id="excluded-channels-list" style="display:flex;flex-direction:column;gap:6px;max-height:140px;overflow-y:auto;"></div>
       </div>
       <button class="btn-primary" id="settings-save-btn" style="width:100%">保存</button>
       <div class="settings-footer">
@@ -329,7 +355,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 21:01 JST</div>
+  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/13 21:16 JST</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
@@ -337,21 +363,77 @@
     // 設定・状態
     // ══════════════════════════════════════════
     const CLIENT_ID = '359904585446-eus57igbu9jtk22pibq5v7lgvn3lsl94.apps.googleusercontent.com';
-    const SCOPES = 'https://www.googleapis.com/auth/youtube.readonly';
+    // youtube.force-ssl は読み取り全般に加え、お気に入りプレイリストへの書き込みも行える単一スコープ
+    const SCOPES = 'https://www.googleapis.com/auth/youtube.force-ssl';
     const YT_API = 'https://www.googleapis.com/youtube/v3';
+    const APP_PLAYLIST_TITLE = 'YouTube発見 お気に入り';
+    const REGION_OPTIONS = { JP: '日本', US: 'アメリカ', KR: '韓国', GB: 'イギリス', FR: 'フランス', DE: 'ドイツ' };
+    const REGION_LANG = { JP: 'ja', US: 'en', KR: 'ko', GB: 'en', FR: 'fr', DE: 'de' };
+    const QUOTA_COSTS = { search: 100, videos: 1, channels: 1, playlistItems: 1, subscriptions: 1, videoCategories: 1, playlists: 1 };
+
+    // スコープを force-ssl に拡張したため、旧スコープのトークンが残っていたら一度だけ再ログインを促す
+    const REQUIRED_SCOPE_VERSION = '2';
+    if (localStorage.getItem('yt_scope_version') !== REQUIRED_SCOPE_VERSION) {
+      localStorage.removeItem('yt_token');
+      localStorage.setItem('yt_scope_version', REQUIRED_SCOPE_VERSION);
+    }
 
     let tokenClient = null;
     let accessToken = null;
     let tokenExpiry = 0;
     let claudeKey = '';
     let userProfile = null;
+    let regionCode = localStorage.getItem('yt_region') || 'JP';
+    let playlistId = localStorage.getItem('yt_playlist_id') || '';
 
     let subscriptions = [];         // [{channelId, title, thumb}]
     let subscribedChannelIds = new Set();
+    let excludedChannels = new Set(JSON.parse(localStorage.getItem('yt_excluded_channels') || '[]'));
     let categoryMap = {};           // {id: title}  (assignable video categories)
     let genreHistogram = {};        // {categoryId: count}
     let discoveryCache = null;      // {timestamp, groups:[{categoryId,categoryTitle,videos:[]}]}
     let favorites = [];             // [{videoId,title,channelTitle,thumb,addedAt}]
+
+    // ── 表示済み動画（新規開拓の重複防止、30日で自動的に忘れる） ──
+    function loadSeenVideos() {
+      let obj = {};
+      try { obj = JSON.parse(localStorage.getItem('yt_seen_videos') || '{}'); } catch {}
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      Object.keys(obj).forEach(id => { if (obj[id] < cutoff) delete obj[id]; });
+      return obj;
+    }
+    let seenVideoIds = loadSeenVideos();
+    function markSeen(videoIds) {
+      const now = Date.now();
+      videoIds.forEach(id => { seenVideoIds[id] = now; });
+      const entries = Object.entries(seenVideoIds);
+      if (entries.length > 1000) {
+        entries.sort((a, b) => a[1] - b[1]);
+        entries.slice(0, entries.length - 1000).forEach(([id]) => delete seenVideoIds[id]);
+      }
+      localStorage.setItem('yt_seen_videos', JSON.stringify(seenVideoIds));
+    }
+
+    // ── クォータ使用量の推定（YouTube APIは残量を返してくれないため自己集計） ──
+    function todayKey() {
+      // 実際のリセットは太平洋時間の深夜なので、UTC-8としてざっくり近似する
+      return new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    }
+    function loadQuotaUsage() {
+      try {
+        const obj = JSON.parse(localStorage.getItem('yt_quota_usage') || 'null');
+        if (obj && obj.date === todayKey()) return obj;
+      } catch {}
+      return { date: todayKey(), used: 0 };
+    }
+    let quotaUsage = loadQuotaUsage();
+    function trackQuota(units) {
+      if (quotaUsage.date !== todayKey()) quotaUsage = { date: todayKey(), used: 0 };
+      quotaUsage.used += units;
+      localStorage.setItem('yt_quota_usage', JSON.stringify(quotaUsage));
+      const el = document.getElementById('quota-badge');
+      if (el) el.textContent = `本日の推定API使用量: ${quotaUsage.used.toLocaleString()} / 10,000 ユニット`;
+    }
 
     const esc = s => (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
     const fmtNum = n => { n = Number(n) || 0; if (n >= 10000) return (n/10000).toFixed(1) + '万'; return n.toLocaleString(); };
@@ -462,12 +544,17 @@
     // ══════════════════════════════════════════
     // YouTube API ヘルパー
     // ══════════════════════════════════════════
-    async function ytFetch(path, params = {}) {
+    async function ytFetch(path, params = {}, options = {}) {
       await ensureToken();
       const url = new URL(`${YT_API}/${path}`);
       Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const data = await res.json();
+      const fetchOpts = { headers: { Authorization: `Bearer ${accessToken}` } };
+      if (options.method) fetchOpts.method = options.method;
+      if (options.body) { fetchOpts.headers['Content-Type'] = 'application/json'; fetchOpts.body = JSON.stringify(options.body); }
+      const res = await fetch(url, fetchOpts);
+      trackQuota(QUOTA_COSTS[path] || 1);
+      if (res.status === 204) return {};
+      const data = await res.json().catch(() => ({}));
       if (data.error) throw new Error(data.error.message || 'YouTube APIエラー');
       return data;
     }
@@ -487,7 +574,7 @@
     }
 
     async function fetchVideoCategories() {
-      const data = await ytFetch('videoCategories', { part: 'snippet', regionCode: 'JP' });
+      const data = await ytFetch('videoCategories', { part: 'snippet', regionCode });
       const map = {};
       (data.items || []).forEach(c => { if (c.snippet.assignable) map[c.id] = c.snippet.title; });
       return map;
@@ -535,16 +622,29 @@
       return likeRatio * Math.log10(v.viewCount + 10);
     }
 
+    function durationSeconds(iso) {
+      const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(iso || '') || [];
+      return (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0);
+    }
+
     function mapVideoItem(v) {
       const viewCount = Number(v.statistics?.viewCount || 0);
       const likeCount = Number(v.statistics?.likeCount || 0);
+      const duration = v.contentDetails?.duration || '';
+      const durSec = durationSeconds(duration);
       return {
         videoId: v.id, title: v.snippet.title, channelTitle: v.snippet.channelTitle,
         channelId: v.snippet.channelId, thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.default?.url || '',
         publishedAt: v.snippet.publishedAt, viewCount, likeCount,
         likeRatio: viewCount > 0 ? likeCount / viewCount : 0,
-        duration: v.contentDetails?.duration || '', description: v.snippet.description || '',
+        duration, durationSec: durSec, isShort: durSec > 0 && durSec <= 60,
+        description: v.snippet.description || '',
       };
+    }
+
+    // 除外チャンネル・既に表示済みの動画を取り除く共通フィルタ
+    function applyExclusions(videos) {
+      return videos.filter(v => !subscribedChannelIds.has(v.channelId) && !excludedChannels.has(v.channelId) && !seenVideoIds[v.videoId]);
     }
 
     // search.list は1回100ユニット消費し、1日の無料枠(10,000ユニット)をすぐ使い切ってしまう。
@@ -552,10 +652,9 @@
     async function searchDiscoveryForCategory(categoryId) {
       const data = await ytFetch('videos', {
         part: 'snippet,statistics,contentDetails', chart: 'mostPopular',
-        videoCategoryId: categoryId, regionCode: 'JP', maxResults: 25,
+        videoCategoryId: categoryId, regionCode, maxResults: 25,
       });
-      let videos = (data.items || []).map(mapVideoItem)
-        .filter(v => !subscribedChannelIds.has(v.channelId) && v.viewCount >= 100);
+      let videos = applyExclusions((data.items || []).map(mapVideoItem)).filter(v => v.viewCount >= 100);
       videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
       return videos.slice(0, 8);
     }
@@ -563,10 +662,9 @@
     // カテゴリ別が軒並み空振りした場合の保険（こちらも1ユニットのみ消費）
     async function searchDiscoveryFallback() {
       const data = await ytFetch('videos', {
-        part: 'snippet,statistics,contentDetails', chart: 'mostPopular', regionCode: 'JP', maxResults: 25,
+        part: 'snippet,statistics,contentDetails', chart: 'mostPopular', regionCode, maxResults: 25,
       });
-      let videos = (data.items || []).map(mapVideoItem)
-        .filter(v => !subscribedChannelIds.has(v.channelId) && v.viewCount >= 100);
+      let videos = applyExclusions((data.items || []).map(mapVideoItem)).filter(v => v.viewCount >= 100);
       videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
       return videos.slice(0, 12);
     }
@@ -574,7 +672,7 @@
     // ══════════════════════════════════════════
     // 新規開拓フロー
     // ══════════════════════════════════════════
-    const DISCOVERY_CACHE_VERSION = 4; // ロジック更新時にインクリメントして古いキャッシュを無効化する
+    const DISCOVERY_CACHE_VERSION = 5; // ロジック更新時にインクリメントして古いキャッシュを無効化する
 
     async function runDiscoveryFlow(force = false) {
       const statusEl = document.getElementById('discover-status');
@@ -582,7 +680,7 @@
       if (!force && cacheRaw) {
         try {
           const cached = JSON.parse(cacheRaw);
-          if (cached.version === DISCOVERY_CACHE_VERSION && Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
+          if (cached.version === DISCOVERY_CACHE_VERSION && cached.regionCode === regionCode && Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
             discoveryCache = cached;
             genreHistogram = cached.genreHistogram || {};
             categoryMap = cached.categoryMap || {};
@@ -636,7 +734,12 @@
           }
         }
 
-        discoveryCache = { version: DISCOVERY_CACHE_VERSION, timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions, errors };
+        // 表示した動画は「見た」として記録し、次回以降の新規開拓では出さないようにする
+        const shownIds = [];
+        groups.forEach(g => g.videos.forEach(v => shownIds.push(v.videoId)));
+        if (shownIds.length) markSeen(shownIds);
+
+        discoveryCache = { version: DISCOVERY_CACHE_VERSION, timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions, errors, regionCode };
         localStorage.setItem('yt_discovery_cache', JSON.stringify(discoveryCache));
 
         statusEl.textContent = `${subscriptions.length}件の登録チャンネルを分析 → ${groups.length}ジャンルから新規開拓を提案`;
@@ -651,7 +754,23 @@
     // ── 並べ替え・フィルタ状態（新規開拓／お気に入り共通） ──
     let discoverSort = localStorage.getItem('yt_discover_sort') || 'score';
     let discoverCategoryFilter = new Set();
+    let durationFilter = localStorage.getItem('yt_duration_filter') || 'all'; // all/short/normal（全タブ共通）
     let aiVideoInsights = {}; // videoId -> {reason, score}（概要文を読んだAIの一言コメント）
+
+    function applyDurationFilter(videos) {
+      if (durationFilter === 'short') return videos.filter(v => v.isShort);
+      if (durationFilter === 'normal') return videos.filter(v => !v.isShort);
+      return videos;
+    }
+    function bindDurationSelect(id, onChange) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', (e) => {
+        durationFilter = e.target.value;
+        localStorage.setItem('yt_duration_filter', durationFilter);
+        onChange();
+      });
+    }
 
     function sortKey(v, mode) {
       if (mode === 'date') return new Date(v.publishedAt || 0).getTime();
@@ -666,6 +785,11 @@
         <div class="toolbar">
           <select id="${selectId}" class="select-small">
             ${Object.entries(SORT_LABELS).map(([v, label]) => `<option value="${v}" ${currentSort === v ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+          <select id="${selectId}-duration" class="select-small">
+            <option value="all" ${durationFilter === 'all' ? 'selected' : ''}>長さ: すべて</option>
+            <option value="short" ${durationFilter === 'short' ? 'selected' : ''}>ショートのみ</option>
+            <option value="normal" ${durationFilter === 'normal' ? 'selected' : ''}>通常動画のみ</option>
           </select>
           ${chips.length ? `<div class="chip-row">${chips.map(c => `<button class="chip ${activeFilterSet.has(c) ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
         </div>`;
@@ -687,6 +811,7 @@
       const cats = [...new Set(groups.map(g => g.categoryTitle))];
 
       if (discoverCategoryFilter.size) all = all.filter(v => discoverCategoryFilter.has(v.tag));
+      all = applyDurationFilter(all);
       all.sort((a, b) => sortKey(b, discoverSort) - sortKey(a, discoverSort));
 
       const analyzedCount = all.filter(v => aiVideoInsights[v.videoId]).length;
@@ -707,6 +832,7 @@
         localStorage.setItem('yt_discover_sort', discoverSort);
         renderDiscoverTab();
       });
+      bindDurationSelect('discover-sort-select-duration', renderDiscoverTab);
       el.querySelectorAll('.chip[data-cat]').forEach(chip => {
         chip.addEventListener('click', () => {
           const c = chip.dataset.cat;
@@ -839,13 +965,14 @@ ${contextPrompt}
         for (const q of queries) {
           result.innerHTML = `<div class="loading-row"><div class="spinner"></div>「${esc(q.query)}」で検索中...</div>`;
           try {
-            const data = await ytFetch('search', { part: 'snippet', type: 'video', q: q.query, order: 'relevance', regionCode: 'JP', relevanceLanguage: 'ja', safeSearch: 'moderate', maxResults: 6 });
+            const data = await ytFetch('search', { part: 'snippet', type: 'video', q: q.query, order: 'relevance', regionCode, relevanceLanguage: REGION_LANG[regionCode] || 'ja', safeSearch: 'moderate', maxResults: 6 });
             const ids = (data.items || []).map(it => it.id.videoId).filter(Boolean);
             if (!ids.length) continue;
             const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
-            let videos = (vData.items || []).map(v => ({ ...mapVideoItem(v), reason: q.reason }));
+            let videos = (vData.items || []).map(v => ({ ...mapVideoItem(v), reason: q.reason }))
+              .filter(v => !excludedChannels.has(v.channelId));
             videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
-            groups.push({ query: q.query, reason: q.reason, videos });
+            if (videos.length) groups.push({ query: q.query, reason: q.reason, videos });
           } catch (e) { console.warn('ai search query failed', q.query, e.message); }
         }
 
@@ -889,6 +1016,7 @@ ${contextPrompt}
       const queries = [...new Set(aiResultGroups.map(g => g.query))];
 
       if (aiQueryFilter.size) all = all.filter(v => aiQueryFilter.has(v.queryLabel));
+      all = applyDurationFilter(all);
       all.sort((a, b) => sortKey(b, aiSort) - sortKey(a, aiSort));
 
       result.innerHTML = `
@@ -903,6 +1031,7 @@ ${contextPrompt}
         localStorage.setItem('yt_ai_sort', aiSort);
         renderAiResults();
       });
+      bindDurationSelect('ai-sort-select-duration', renderAiResults);
       result.querySelectorAll('.chip[data-cat]').forEach(chip => {
         chip.addEventListener('click', () => {
           const c = chip.dataset.cat;
@@ -920,16 +1049,57 @@ ${contextPrompt}
     }
     function saveFavorites() { localStorage.setItem('yt_favorites', JSON.stringify(favorites)); }
     function isFavorite(id) { return favorites.some(f => f.videoId === id); }
+
+    // ── YouTube本体の「YouTube発見 お気に入り」プレイリストと同期（アプリ専用プレイリストのみ操作） ──
+    async function ensureAppPlaylist() {
+      if (playlistId) return playlistId;
+      try {
+        const data = await ytFetch('playlists', { part: 'snippet', mine: 'true', maxResults: 50 });
+        const found = (data.items || []).find(p => p.snippet.title === APP_PLAYLIST_TITLE);
+        if (found) { playlistId = found.id; localStorage.setItem('yt_playlist_id', playlistId); return playlistId; }
+      } catch (e) { console.warn('playlist lookup failed', e.message); }
+      const created = await ytFetch('playlists', { part: 'snippet,status' }, {
+        method: 'POST',
+        body: { snippet: { title: APP_PLAYLIST_TITLE, description: 'YouTube発見アプリのお気に入りから自動追加されます' }, status: { privacyStatus: 'private' } },
+      });
+      playlistId = created.id;
+      localStorage.setItem('yt_playlist_id', playlistId);
+      return playlistId;
+    }
+    async function syncFavoriteToPlaylist(v) {
+      try {
+        const pid = await ensureAppPlaylist();
+        const created = await ytFetch('playlistItems', { part: 'snippet' }, {
+          method: 'POST',
+          body: { snippet: { playlistId: pid, resourceId: { kind: 'youtube#video', videoId: v.videoId } } },
+        });
+        const fav = favorites.find(f => f.videoId === v.videoId);
+        if (fav) { fav.playlistItemId = created.id; saveFavorites(); }
+      } catch (e) {
+        console.warn('playlist sync failed', e.message);
+        showToast('YouTube側プレイリストへの追加に失敗しました（アプリ内には保存済み）');
+      }
+    }
+    async function removeFavoriteFromPlaylist(fav) {
+      if (!fav?.playlistItemId) return;
+      try { await ytFetch('playlistItems', { id: fav.playlistItemId }, { method: 'DELETE' }); }
+      catch (e) { console.warn('playlist remove failed', e.message); }
+    }
+
     function toggleFavorite(v) {
       if (isFavorite(v.videoId)) {
+        const fav = favorites.find(f => f.videoId === v.videoId);
         favorites = favorites.filter(f => f.videoId !== v.videoId);
+        if (fav) removeFavoriteFromPlaylist(fav);
       } else {
         favorites.unshift({
           videoId: v.videoId, title: v.title, channelTitle: v.channelTitle, channelId: v.channelId, thumb: v.thumb,
           viewCount: v.viewCount || 0, likeCount: v.likeCount || 0, likeRatio: v.likeRatio || 0,
-          publishedAt: v.publishedAt || '', duration: v.duration || '', description: v.description || '',
+          publishedAt: v.publishedAt || '', duration: v.duration || '', durationSec: v.durationSec || 0, isShort: !!v.isShort,
+          description: v.description || '',
           addedAt: Date.now(),
         });
+        syncFavoriteToPlaylist(v);
       }
       saveFavorites();
       document.querySelectorAll(`.vcard[data-id="${v.videoId}"] .fav-btn`).forEach(b => b.classList.toggle('active', isFavorite(v.videoId)));
@@ -944,7 +1114,7 @@ ${contextPrompt}
         el.innerHTML = `<div class="empty-state"><div class="emoji">⭐</div>お気に入りはまだありません。動画カードの★ボタンで追加できます。</div>`;
         return;
       }
-      const sorted = [...favorites].sort((a, b) => {
+      let sorted = applyDurationFilter([...favorites]).sort((a, b) => {
         if (favoritesSort === 'added') return b.addedAt - a.addedAt;
         return sortKey(b, favoritesSort) - sortKey(a, favoritesSort);
       });
@@ -955,6 +1125,11 @@ ${contextPrompt}
             <option value="added" ${favoritesSort === 'added' ? 'selected' : ''}>追加順</option>
             ${Object.entries(SORT_LABELS).map(([v, label]) => `<option value="${v}" ${favoritesSort === v ? 'selected' : ''}>${label}</option>`).join('')}
           </select>
+          <select id="favorites-sort-select-duration" class="select-small">
+            <option value="all" ${durationFilter === 'all' ? 'selected' : ''}>長さ: すべて</option>
+            <option value="short" ${durationFilter === 'short' ? 'selected' : ''}>ショートのみ</option>
+            <option value="normal" ${durationFilter === 'normal' ? 'selected' : ''}>通常動画のみ</option>
+          </select>
         </div>
         <div class="grid">${sorted.map(v => vcardHtml(v)).join('')}</div>
       `;
@@ -964,6 +1139,7 @@ ${contextPrompt}
         localStorage.setItem('yt_favorites_sort', favoritesSort);
         renderFavoritesTab();
       });
+      bindDurationSelect('favorites-sort-select-duration', renderFavoritesTab);
     }
 
     // ══════════════════════════════════════════
@@ -977,7 +1153,9 @@ ${contextPrompt}
           <div class="thumb-wrap">
             <img src="${esc(v.thumb)}" loading="lazy" alt="">
             ${v.duration ? `<span class="duration">${fmtDuration(v.duration)}</span>` : ''}
+            ${v.isShort ? `<span class="duration" style="left:6px;right:auto;">Short</span>` : ''}
             <button class="fav-btn ${isFavorite(v.videoId) ? 'active' : ''}" data-favtoggle="${v.videoId}">★</button>
+            <button class="exclude-btn" data-exclude="${v.videoId}" title="このチャンネルを今後表示しない">🚫</button>
           </div>
           <div class="body">
             <div class="title">${esc(v.title)}</div>
@@ -997,6 +1175,14 @@ ${contextPrompt}
           if (v) toggleFavorite(v);
         });
       });
+      root.querySelectorAll('.exclude-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const card = e.target.closest('.vcard');
+          const v = findVideoById(card.dataset.id);
+          if (v) excludeChannel(v.channelId, v.channelTitle);
+        });
+      });
       root.querySelectorAll('.vcard').forEach(card => {
         card.addEventListener('click', () => {
           const v = findVideoById(card.dataset.id);
@@ -1007,6 +1193,23 @@ ${contextPrompt}
 
     function findVideoById(id) {
       return window.__videoMap?.[id] || favorites.find(f => f.videoId === id) || null;
+    }
+
+    function excludeChannel(channelId, channelTitle) {
+      if (!channelId) return;
+      excludedChannels.add(channelId);
+      localStorage.setItem('yt_excluded_channels', JSON.stringify([...excludedChannels]));
+      showToast(`「${channelTitle || 'このチャンネル'}」を今後表示しないようにしました`);
+      if (document.getElementById('tab-discover').classList.contains('active')) renderDiscoverTab();
+      if (document.getElementById('tab-ai').classList.contains('active')) renderAiResults();
+      renderExcludedChannelsList();
+    }
+
+    function includeChannel(channelId) {
+      excludedChannels.delete(channelId);
+      localStorage.setItem('yt_excluded_channels', JSON.stringify([...excludedChannels]));
+      renderExcludedChannelsList();
+      showToast('除外を解除しました');
     }
 
     function openDetail(v) {
@@ -1039,16 +1242,50 @@ ${contextPrompt}
     // ══════════════════════════════════════════
     // 設定
     // ══════════════════════════════════════════
+    function renderExcludedChannelsList() {
+      const el = document.getElementById('excluded-channels-list');
+      if (!el) return;
+      if (!excludedChannels.size) {
+        el.innerHTML = `<div style="font-size:.75rem;color:var(--text2);">除外中のチャンネルはありません</div>`;
+        return;
+      }
+      el.innerHTML = [...excludedChannels].map(id => {
+        const known = subscriptions.find(s => s.channelId === id) || Object.values(window.__videoMap || {}).find(v => v.channelId === id);
+        const title = known?.title || known?.channelTitle || id;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.75rem;">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(title)}</span>
+          <button class="link-danger" data-include="${esc(id)}" style="flex-shrink:0;">解除</button>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-include]').forEach(btn => {
+        btn.addEventListener('click', () => includeChannel(btn.dataset.include));
+      });
+    }
+
     function openSettings() {
       document.getElementById('claude-key-input').value = localStorage.getItem('claude_api_key') || '';
+      const regionSel = document.getElementById('region-select');
+      regionSel.innerHTML = Object.entries(REGION_OPTIONS).map(([code, label]) => `<option value="${code}" ${regionCode === code ? 'selected' : ''}>${label}</option>`).join('');
+      document.getElementById('quota-badge').textContent = `本日の推定API使用量: ${quotaUsage.used.toLocaleString()} / 10,000 ユニット`;
+      renderExcludedChannelsList();
       document.getElementById('settings-overlay').classList.add('show');
     }
     function closeSettings() { document.getElementById('settings-overlay').classList.remove('show'); }
     function saveSettings() {
       const ck = document.getElementById('claude-key-input').value.trim();
       if (ck) { localStorage.setItem('claude_api_key', ck); claudeKey = ck; }
+
+      const newRegion = document.getElementById('region-select').value;
+      const regionChanged = newRegion !== regionCode;
+      if (regionChanged) {
+        regionCode = newRegion;
+        localStorage.setItem('yt_region', regionCode);
+        localStorage.removeItem('yt_discovery_cache');
+      }
+
       closeSettings();
-      showToast('設定を保存しました');
+      showToast(regionChanged ? '設定を保存しました。地域変更を反映して更新します' : '設定を保存しました');
+      if (regionChanged) runDiscoveryFlow(true);
     }
 
     // ══════════════════════════════════════════
@@ -1065,6 +1302,9 @@ ${contextPrompt}
     window.addEventListener('DOMContentLoaded', () => {
       claudeKey = localStorage.getItem('claude_api_key') || '';
       loadFavorites();
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch((e) => console.warn('service worker registration failed', e.message));
+      }
 
       document.getElementById('login-btn').addEventListener('click', login);
       document.getElementById('user-avatar').addEventListener('click', logout);
