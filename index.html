@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎬 YouTube発見 — おすすめの外側を探す</title>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --bg2: #16162a;
+    --bg3: #1e1e35;
+    --card: #1e1e35;
+    --card-hover: #252540;
+    --accent: #ff3b3b;
+    --accent2: #cc2222;
+    --gold: #f5c518;
+    --text: #e8e8f0;
+    --text2: #9a9ab0;
+    --border: #2a2a4a;
+    --danger: #ef4444;
+    --green: #22c55e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Helvetica Neue', 'Hiragino Sans', Arial, sans-serif; min-height: 100vh; }
+  a { color: inherit; }
+  button { font-family: inherit; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── LOGIN OVERLAY ── */
+  #login-overlay {
+    position: fixed; inset: 0; background: radial-gradient(circle at 30% 20%, #241830, var(--bg) 70%);
+    z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  #login-overlay.hide { display: none; }
+  .login-box { max-width: 460px; text-align: center; }
+  .login-box .emoji { font-size: 3rem; margin-bottom: 12px; }
+  .login-box h1 { font-size: 1.5rem; margin-bottom: 10px; }
+  .login-box p { color: var(--text2); font-size: .9rem; line-height: 1.7; margin-bottom: 26px; }
+  .btn-google {
+    background: #fff; color: #1f1f1f; border: none; border-radius: 8px;
+    padding: 12px 22px; font-size: .95rem; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 10px; transition: transform .15s;
+  }
+  .btn-google:hover { transform: translateY(-1px); }
+  .login-note { margin-top: 18px; font-size: .72rem; color: var(--text2); }
+
+  /* ── HEADER (2段 sticky) ── */
+  header {
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    padding: 0 20px; height: 54px; display: flex; align-items: center; gap: 16px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { font-size: 1.05rem; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .tabs { display: flex; background: var(--bg3); border-radius: 999px; padding: 3px; gap: 2px; }
+  .tab-btn {
+    background: transparent; border: none; color: var(--text2); padding: 7px 14px;
+    border-radius: 999px; font-size: .8rem; cursor: pointer; white-space: nowrap; transition: all .15s;
+  }
+  .tab-btn.active { background: var(--accent); color: #fff; }
+  .header-spacer { flex: 1; }
+  .icon-btn {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center; transition: border .15s;
+  }
+  .icon-btn:hover { border-color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; }
+
+  .subheader {
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    padding: 10px 20px; position: sticky; top: 54px; z-index: 90;
+    font-size: .78rem; color: var(--text2); display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .subheader .btn-small {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 12px; border-radius: 6px; font-size: .75rem; cursor: pointer;
+  }
+  .subheader .btn-small:hover { border-color: var(--accent); }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── SECTION HEADINGS ── */
+  .section-title { font-size: .95rem; font-weight: 700; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .section-title:first-child { margin-top: 0; }
+  .section-title .cat-tag {
+    background: rgba(255,59,59,.15); color: var(--accent); border: 1px solid rgba(255,59,59,.4);
+    border-radius: 999px; padding: 2px 10px; font-size: .72rem; font-weight: 600;
+  }
+  .section-desc { color: var(--text2); font-size: .78rem; margin-bottom: 12px; }
+
+  /* ── GRID / CARDS ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .vcard {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    cursor: pointer; transition: transform .15s, border-color .15s; position: relative;
+  }
+  .vcard:hover { transform: translateY(-3px); border-color: var(--accent); background: var(--card-hover); }
+  .vcard .thumb-wrap { position: relative; aspect-ratio: 16/9; background: #000; }
+  .vcard .thumb-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .vcard .duration {
+    position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.8); color: #fff;
+    font-size: .68rem; padding: 1px 5px; border-radius: 4px;
+  }
+  .vcard .fav-btn {
+    position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.6); border: none;
+    width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: .95rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .vcard .fav-btn.active { color: var(--gold); }
+  .vcard .body { padding: 10px 12px; }
+  .vcard .title { font-size: .82rem; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.2em; }
+  .vcard .channel { font-size: .72rem; color: var(--text2); margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+  .vcard .meta { font-size: .68rem; color: var(--text2); margin-top: 3px; }
+  .vcard .reason { font-size: .68rem; color: var(--accent); margin-top: 6px; line-height: 1.4; }
+
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
+  .empty-state .emoji { font-size: 2.4rem; margin-bottom: 10px; }
+  .loading-row { text-align: center; padding: 40px; color: var(--text2); font-size: .85rem; }
+  .spinner {
+    width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── CHANNELS TAB / GENRE CHART ── */
+  .genre-chart { display: flex; flex-direction: column; gap: 8px; margin-bottom: 26px; }
+  .genre-row { display: flex; align-items: center; gap: 10px; font-size: .78rem; }
+  .genre-row .label { width: 130px; flex-shrink: 0; color: var(--text2); text-align: right; }
+  .genre-row .bar-wrap { flex: 1; background: var(--bg3); border-radius: 4px; overflow: hidden; height: 16px; }
+  .genre-row .bar { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 4px; }
+  .genre-row .count { width: 30px; color: var(--text2); font-size: .72rem; }
+  .channel-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .channel-chip { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .channel-chip img { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; }
+  .channel-chip .name { font-size: .78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── AI TAB ── */
+  .ai-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .ai-box textarea {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; color: var(--text); font-size: .85rem; resize: vertical; min-height: 60px; outline: none;
+  }
+  .ai-box textarea:focus { border-color: var(--accent); }
+  .btn-primary {
+    background: var(--accent); border: none; border-radius: 8px; padding: 10px 20px;
+    color: #fff; font-size: .88rem; font-weight: 600; cursor: pointer; margin-top: 10px;
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── MODAL ── */
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 500; align-items: center; justify-content: center; padding: 16px; }
+  .overlay.show { display: flex; }
+  .modal-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 720px; max-height: 90vh; overflow-y: auto; }
+  .modal-box .player-wrap { position: relative; aspect-ratio: 16/9; background: #000; }
+  .modal-box .player-wrap iframe { width: 100%; height: 100%; border: none; }
+  .modal-close { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,.6); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1rem; z-index: 2; }
+  .modal-body { padding: 18px 20px; }
+  .modal-body h2 { font-size: 1.05rem; margin-bottom: 8px; line-height: 1.4; }
+  .modal-body .channel-line { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .modal-body .channel-line img { width: 30px; height: 30px; border-radius: 50%; }
+  .modal-body .meta-line { font-size: .78rem; color: var(--text2); margin-bottom: 12px; }
+  .modal-body .desc { font-size: .8rem; line-height: 1.6; color: var(--text2); white-space: pre-wrap; max-height: 5.6em; overflow: hidden; }
+  .modal-body .desc.expanded { max-height: none; }
+  .modal-body .desc-toggle { color: var(--accent); font-size: .75rem; cursor: pointer; margin-top: 6px; display: inline-block; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: 8px; font-size: .8rem; cursor: pointer; }
+  .btn-outline:hover { border-color: var(--accent); }
+  .btn-outline.active { border-color: var(--gold); color: var(--gold); }
+
+  /* ── SETTINGS ── */
+  .setup-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 30px; width: 100%; max-width: 440px; }
+  .setup-box h2 { font-size: 1.15rem; margin-bottom: 18px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: .78rem; color: var(--text2); margin-bottom: 6px; }
+  .form-group input {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; color: var(--text); font-size: .85rem; outline: none;
+  }
+  .form-group input:focus { border-color: var(--accent); }
+  .form-group .hint { font-size: .72rem; color: var(--text2); margin-top: 5px; }
+  .form-group .hint a { color: var(--accent); text-decoration: none; }
+  .settings-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+  .link-danger { color: var(--danger); font-size: .78rem; cursor: pointer; background: none; border: none; }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 20px; border-radius: 999px; font-size: .82rem; z-index: 2000;
+    opacity: 0; transition: all .25s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 640px) {
+    header { padding: 0 12px; gap: 10px; }
+    .logo { font-size: .9rem; }
+    .tab-btn { padding: 6px 10px; font-size: .74rem; }
+    .subheader { padding: 8px 12px; }
+    main { padding: 14px; }
+    .genre-row .label { width: 90px; font-size: .72rem; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── LOGIN OVERLAY ── -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <div class="emoji">🎬</div>
+      <h1>YouTube発見</h1>
+      <p>いつものおすすめは、実はあなたの登録チャンネルに偏っています。<br>
+         このアプリはあなたの登録チャンネルを分析し、<b>まだ見ていないジャンル</b>から動画を発掘します。AIによる気分ベースの提案も。</p>
+      <button class="btn-google" id="login-btn">
+        <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.85 2.09-1.8 2.73v2.27h2.92c1.7-1.57 2.68-3.88 2.68-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.17l-2.92-2.27c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.34C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.97 10.72c-.18-.54-.28-1.12-.28-1.72s.1-1.18.28-1.72V4.94H.96C.35 6.17 0 7.55 0 9s.35 2.83.96 4.06l3.01-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.94l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+        Googleでログイン
+      </button>
+      <div class="login-note">読み取り専用（登録チャンネル情報）のみ利用します。動画の投稿や登録の変更は行いません。</div>
+    </div>
+  </div>
+
+  <!-- ── HEADER ── -->
+  <header>
+    <div class="logo">🎬 YouTube発見</div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="discover">🧭 新規開拓</button>
+      <button class="tab-btn" data-tab="channels">📊 登録チャンネル</button>
+      <button class="tab-btn" data-tab="ai">✨ AIで探す</button>
+      <button class="tab-btn" data-tab="favorites">⭐ お気に入り</button>
+    </div>
+    <div class="header-spacer"></div>
+    <div class="header-right">
+      <button class="icon-btn" id="settings-btn" title="設定">⚙</button>
+      <img class="avatar" id="user-avatar" src="" style="display:none" title="ログアウト">
+    </div>
+  </header>
+
+  <div class="subheader" id="discover-subheader">
+    <span id="discover-status">登録チャンネルを分析中...</span>
+    <button class="btn-small" id="refresh-discover-btn">🔄 更新</button>
+  </div>
+
+  <main>
+    <!-- ── 新規開拓 ── -->
+    <div class="tab-panel active" id="tab-discover"></div>
+
+    <!-- ── 登録チャンネル ── -->
+    <div class="tab-panel" id="tab-channels"></div>
+
+    <!-- ── AIで探す ── -->
+    <div class="tab-panel" id="tab-ai">
+      <div class="ai-box">
+        <label style="font-size:.8rem;color:var(--text2);display:block;margin-bottom:8px;">今の気分・興味を入力してください</label>
+        <textarea id="mood-input" placeholder="例）集中して作業したいので、静かなノーカット系の動画が見たい／最近宇宙の話に興味がある／笑って元気になりたい"></textarea>
+        <button class="btn-primary" id="ai-search-btn">✨ AIに探してもらう</button>
+      </div>
+      <div id="ai-result"></div>
+    </div>
+
+    <!-- ── お気に入り ── -->
+    <div class="tab-panel" id="tab-favorites"></div>
+  </main>
+
+  <!-- ── 動画詳細モーダル ── -->
+  <div class="overlay" id="detail-overlay">
+    <div class="modal-box">
+      <div class="player-wrap">
+        <button class="modal-close" id="detail-close">✕</button>
+        <iframe id="detail-iframe" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+      </div>
+      <div class="modal-body" id="detail-body"></div>
+    </div>
+  </div>
+
+  <!-- ── 設定オーバーレイ ── -->
+  <div class="overlay" id="settings-overlay">
+    <div class="setup-box">
+      <h2>⚙ 設定</h2>
+      <div class="form-group">
+        <label>Claude APIキー（AI機能用）</label>
+        <input type="password" id="claude-key-input" placeholder="sk-ant-...">
+        <div class="hint">→ <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> で取得。ブラウザのlocalStorageにのみ保存され、外部送信されません。</div>
+      </div>
+      <button class="btn-primary" id="settings-save-btn" style="width:100%">保存</button>
+      <div class="settings-footer">
+        <span style="font-size:.72rem;color:var(--text2)" id="settings-user-email"></span>
+        <button class="link-danger" id="logout-btn">ログアウト</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    // ══════════════════════════════════════════
+    // 設定・状態
+    // ══════════════════════════════════════════
+    const CLIENT_ID = '359904585446-eus57igbu9jtk22pibq5v7lgvn3lsl94.apps.googleusercontent.com';
+    const SCOPES = 'https://www.googleapis.com/auth/youtube.readonly';
+    const YT_API = 'https://www.googleapis.com/youtube/v3';
+
+    let tokenClient = null;
+    let accessToken = null;
+    let tokenExpiry = 0;
+    let claudeKey = '';
+    let userProfile = null;
+
+    let subscriptions = [];         // [{channelId, title, thumb}]
+    let subscribedChannelIds = new Set();
+    let categoryMap = {};           // {id: title}  (assignable video categories)
+    let genreHistogram = {};        // {categoryId: count}
+    let discoveryCache = null;      // {timestamp, groups:[{categoryId,categoryTitle,videos:[]}]}
+    let favorites = [];             // [{videoId,title,channelTitle,thumb,addedAt}]
+
+    const esc = s => (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    const fmtNum = n => { n = Number(n) || 0; if (n >= 10000) return (n/10000).toFixed(1) + '万'; return n.toLocaleString(); };
+    const fmtDuration = iso => {
+      const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(iso || '') || [];
+      const h = +m[1] || 0, mi = +m[2] || 0, se = +m[3] || 0;
+      if (h) return `${h}:${String(mi).padStart(2,'0')}:${String(se).padStart(2,'0')}`;
+      return `${mi}:${String(se).padStart(2,'0')}`;
+    };
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2600);
+    }
+
+    // ══════════════════════════════════════════
+    // 認証 (Google Identity Services)
+    // ══════════════════════════════════════════
+    function initGis() {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: async (resp) => {
+          if (resp.error) { showToast('ログインに失敗しました: ' + resp.error); return; }
+          accessToken = resp.access_token;
+          tokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
+          sessionStorage.setItem('yt_token', JSON.stringify({ token: accessToken, expiry: tokenExpiry }));
+          await onLoginSuccess();
+        },
+      });
+    }
+
+    function login() {
+      tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+    }
+
+    function logout() {
+      if (accessToken) { try { google.accounts.oauth2.revoke(accessToken, () => {}); } catch {} }
+      accessToken = null;
+      sessionStorage.removeItem('yt_token');
+      location.reload();
+    }
+
+    function restoreSession() {
+      const raw = sessionStorage.getItem('yt_token');
+      if (!raw) return false;
+      try {
+        const { token, expiry } = JSON.parse(raw);
+        if (expiry > Date.now()) { accessToken = token; tokenExpiry = expiry; return true; }
+      } catch {}
+      return false;
+    }
+
+    async function ensureToken() {
+      if (accessToken && Date.now() < tokenExpiry) return;
+      await new Promise((resolve, reject) => {
+        tokenClient.callback = (resp) => {
+          if (resp.error) { reject(new Error(resp.error)); return; }
+          accessToken = resp.access_token;
+          tokenExpiry = Date.now() + (resp.expires_in * 1000) - 60000;
+          sessionStorage.setItem('yt_token', JSON.stringify({ token: accessToken, expiry: tokenExpiry }));
+          resolve();
+        };
+        tokenClient.requestAccessToken({ prompt: '' });
+      });
+    }
+
+    async function onLoginSuccess() {
+      document.getElementById('login-overlay').classList.add('hide');
+      try {
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${accessToken}` } });
+        userProfile = await res.json();
+        if (userProfile.picture) {
+          const av = document.getElementById('user-avatar');
+          av.src = userProfile.picture; av.style.display = 'block';
+        }
+        document.getElementById('settings-user-email').textContent = userProfile.email || '';
+      } catch {}
+      loadFavorites();
+      await runDiscoveryFlow();
+    }
+
+    // ══════════════════════════════════════════
+    // YouTube API ヘルパー
+    // ══════════════════════════════════════════
+    async function ytFetch(path, params = {}) {
+      await ensureToken();
+      const url = new URL(`${YT_API}/${path}`);
+      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message || 'YouTube APIエラー');
+      return data;
+    }
+
+    async function fetchAllSubscriptions() {
+      let items = [], pageToken = '';
+      do {
+        const data = await ytFetch('subscriptions', { part: 'snippet', mine: 'true', maxResults: 50, order: 'alphabetical', ...(pageToken ? { pageToken } : {}) });
+        items = items.concat(data.items || []);
+        pageToken = data.nextPageToken || '';
+      } while (pageToken && items.length < 250);
+      return items.map(it => ({
+        channelId: it.snippet.resourceId.channelId,
+        title: it.snippet.title,
+        thumb: it.snippet.thumbnails?.default?.url || '',
+      }));
+    }
+
+    async function fetchVideoCategories() {
+      const data = await ytFetch('videoCategories', { part: 'snippet', regionCode: 'JP' });
+      const map = {};
+      (data.items || []).forEach(c => { if (c.snippet.assignable) map[c.id] = c.snippet.title; });
+      return map;
+    }
+
+    // チャンネルの最新アップロード動画1本のcategoryIdをサンプリングしてジャンルの偏りを推定
+    async function buildGenreHistogram(channels) {
+      const sample = shuffle([...channels]).slice(0, 24);
+      const hist = {};
+      const CONCURRENCY = 5;
+      for (let i = 0; i < sample.length; i += CONCURRENCY) {
+        const batch = sample.slice(i, i + CONCURRENCY);
+        await Promise.all(batch.map(async ch => {
+          try {
+            const chData = await ytFetch('channels', { part: 'contentDetails', id: ch.channelId });
+            const uploadsId = chData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+            if (!uploadsId) return;
+            const plData = await ytFetch('playlistItems', { part: 'contentDetails', playlistId: uploadsId, maxResults: 2 });
+            const videoIds = (plData.items || []).map(v => v.contentDetails.videoId).filter(Boolean);
+            if (!videoIds.length) return;
+            const vData = await ytFetch('videos', { part: 'snippet', id: videoIds.join(',') });
+            (vData.items || []).forEach(v => {
+              const catId = v.snippet.categoryId;
+              if (catId) hist[catId] = (hist[catId] || 0) + 1;
+            });
+          } catch (e) { console.warn('genre sample failed', ch.title, e.message); }
+        }));
+      }
+      return hist;
+    }
+
+    function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+
+    // 視聴傾向が薄い（＝新規開拓すべき）カテゴリを選ぶ
+    function pickUnderrepresentedCategories(n = 5) {
+      const all = Object.entries(categoryMap); // [id, title]
+      const scored = all.map(([id, title]) => ({ id, title, count: genreHistogram[id] || 0 }));
+      scored.sort((a, b) => a.count - b.count || Math.random() - 0.5);
+      return scored.slice(0, n);
+    }
+
+    async function searchDiscoveryForCategory(categoryId) {
+      const data = await ytFetch('search', {
+        part: 'snippet', type: 'video', videoCategoryId: categoryId,
+        order: 'viewCount', regionCode: 'JP', relevanceLanguage: 'ja',
+        safeSearch: 'moderate', maxResults: 10,
+      });
+      const items = (data.items || []).filter(it => !subscribedChannelIds.has(it.snippet.channelId));
+      const ids = items.map(it => it.id.videoId).filter(Boolean).slice(0, 8);
+      if (!ids.length) return [];
+      const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
+      return (vData.items || []).map(v => ({
+        videoId: v.id, title: v.snippet.title, channelTitle: v.snippet.channelTitle,
+        channelId: v.snippet.channelId, thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.default?.url || '',
+        publishedAt: v.snippet.publishedAt, viewCount: v.statistics?.viewCount || 0,
+        duration: v.contentDetails?.duration || '', description: v.snippet.description || '',
+      }));
+    }
+
+    // ══════════════════════════════════════════
+    // 新規開拓フロー
+    // ══════════════════════════════════════════
+    async function runDiscoveryFlow(force = false) {
+      const statusEl = document.getElementById('discover-status');
+      const cacheRaw = localStorage.getItem('yt_discovery_cache');
+      if (!force && cacheRaw) {
+        try {
+          const cached = JSON.parse(cacheRaw);
+          if (Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
+            discoveryCache = cached;
+            genreHistogram = cached.genreHistogram || {};
+            categoryMap = cached.categoryMap || {};
+            subscriptions = cached.subscriptions || subscriptions;
+            subscribedChannelIds = new Set(subscriptions.map(s => s.channelId));
+            renderDiscoverTab();
+            renderChannelsTab();
+            statusEl.textContent = `${subscriptions.length}件の登録チャンネルを分析済み（キャッシュ）`;
+            return;
+          }
+        } catch {}
+      }
+
+      try {
+        statusEl.textContent = '登録チャンネルを取得中...';
+        subscriptions = await fetchAllSubscriptions();
+        subscribedChannelIds = new Set(subscriptions.map(s => s.channelId));
+
+        statusEl.textContent = 'ジャンルカテゴリを取得中...';
+        categoryMap = await fetchVideoCategories();
+
+        statusEl.textContent = `視聴傾向を分析中... (${subscriptions.length}チャンネル中サンプリング)`;
+        genreHistogram = await buildGenreHistogram(subscriptions);
+
+        statusEl.textContent = '新規開拓カテゴリの動画を探索中...';
+        const targets = pickUnderrepresentedCategories(5);
+        const groups = [];
+        for (const t of targets) {
+          try {
+            const videos = await searchDiscoveryForCategory(t.id);
+            if (videos.length) groups.push({ categoryId: t.id, categoryTitle: t.title, videos });
+          } catch (e) { console.warn('discovery search failed', t.title, e.message); }
+        }
+
+        discoveryCache = { timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions };
+        localStorage.setItem('yt_discovery_cache', JSON.stringify(discoveryCache));
+
+        statusEl.textContent = `${subscriptions.length}件の登録チャンネルを分析 → ${groups.length}ジャンルから新規開拓を提案`;
+        renderDiscoverTab();
+        renderChannelsTab();
+      } catch (e) {
+        statusEl.textContent = 'エラー: ' + e.message;
+        showToast('分析に失敗しました: ' + e.message);
+      }
+    }
+
+    function renderDiscoverTab() {
+      const el = document.getElementById('tab-discover');
+      const groups = discoveryCache?.groups || [];
+      if (!groups.length) {
+        el.innerHTML = `<div class="empty-state"><div class="emoji">🔍</div>新規開拓できる動画が見つかりませんでした。更新ボタンで再試行してください。</div>`;
+        return;
+      }
+      el.innerHTML = groups.map(g => `
+        <div class="section-title">${esc(g.categoryTitle)} <span class="cat-tag">新規開拓</span></div>
+        <div class="section-desc">あなたの登録チャンネルではあまり見かけないジャンルです</div>
+        <div class="grid">${g.videos.map(v => vcardHtml(v)).join('')}</div>
+      `).join('');
+      bindCardEvents(el);
+    }
+
+    function renderChannelsTab() {
+      const el = document.getElementById('tab-channels');
+      const maxCount = Math.max(1, ...Object.values(genreHistogram));
+      const rows = Object.entries(genreHistogram)
+        .map(([id, count]) => ({ id, title: categoryMap[id] || id, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 12);
+
+      el.innerHTML = `
+        <div class="section-title">📊 視聴ジャンルの分布</div>
+        <div class="section-desc">登録チャンネルの最新投稿からサンプリングした傾向です</div>
+        <div class="genre-chart">
+          ${rows.map(r => `
+            <div class="genre-row">
+              <div class="label">${esc(r.title)}</div>
+              <div class="bar-wrap"><div class="bar" style="width:${Math.max(4, r.count / maxCount * 100)}%"></div></div>
+              <div class="count">${r.count}</div>
+            </div>
+          `).join('') || '<div class="section-desc">データがありません</div>'}
+        </div>
+        <div class="section-title">📺 登録チャンネル一覧（${subscriptions.length}件）</div>
+        <div class="channel-list">
+          ${subscriptions.map(s => `
+            <div class="channel-chip">
+              <img src="${esc(s.thumb)}" alt="">
+              <div class="name">${esc(s.title)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    // ══════════════════════════════════════════
+    // AIで探す
+    // ══════════════════════════════════════════
+    async function callClaude(system, userMsg, maxTokens = 700) {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': claudeKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: maxTokens,
+          system,
+          messages: [{ role: 'user', content: userMsg }],
+        }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error.message);
+      return d.content[0].text.trim();
+    }
+
+    async function doAiSearch() {
+      if (!claudeKey) { showToast('Claude APIキーを設定してください'); openSettings(); return; }
+      const mood = document.getElementById('mood-input').value.trim();
+      if (!mood) { showToast('気分・興味を入力してください'); return; }
+
+      const btn = document.getElementById('ai-search-btn');
+      const result = document.getElementById('ai-result');
+      btn.disabled = true; btn.textContent = '考え中...';
+      result.innerHTML = `<div class="loading-row"><div class="spinner"></div>Claudeが検索クエリを考えています...</div>`;
+
+      try {
+        const sysPrompt = `あなたはYouTube動画のキュレーターです。ユーザーの気分・興味に合い、かつ「意外性・新規開拓性」のある検索クエリを5つ考えてください。
+条件:
+- 王道すぎる有名チャンネル名だけに寄らず、幅広いジャンル・視点を混ぜる
+- 日本語の検索クエリとして自然な形にする
+- 以下のJSON配列のみ返す（説明文・マークダウン不要）
+[{"query":"検索クエリ","reason":"提案理由を20字程度で"}]`;
+        const text = await callClaude(sysPrompt, `気分・興味: "${mood}"`);
+        const clean = text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '');
+        const queries = JSON.parse(clean);
+
+        const groups = [];
+        for (const q of queries) {
+          result.innerHTML = `<div class="loading-row"><div class="spinner"></div>「${esc(q.query)}」で検索中...</div>`;
+          try {
+            const data = await ytFetch('search', { part: 'snippet', type: 'video', q: q.query, order: 'relevance', regionCode: 'JP', relevanceLanguage: 'ja', safeSearch: 'moderate', maxResults: 6 });
+            const ids = (data.items || []).map(it => it.id.videoId).filter(Boolean);
+            if (!ids.length) continue;
+            const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
+            const videos = (vData.items || []).map(v => ({
+              videoId: v.id, title: v.snippet.title, channelTitle: v.snippet.channelTitle,
+              channelId: v.snippet.channelId, thumb: v.snippet.thumbnails?.medium?.url || '',
+              publishedAt: v.snippet.publishedAt, viewCount: v.statistics?.viewCount || 0,
+              duration: v.contentDetails?.duration || '', description: v.snippet.description || '',
+              reason: q.reason,
+            }));
+            groups.push({ query: q.query, reason: q.reason, videos });
+          } catch (e) { console.warn('ai search query failed', q.query, e.message); }
+        }
+
+        result.innerHTML = groups.map(g => `
+          <div class="section-title">${esc(g.query)} <span class="cat-tag">${esc(g.reason)}</span></div>
+          <div class="grid">${g.videos.map(v => vcardHtml(v, true)).join('')}</div>
+        `).join('') || `<div class="empty-state"><div class="emoji">🤔</div>結果が見つかりませんでした。別の言葉で試してください。</div>`;
+        bindCardEvents(result);
+      } catch (err) {
+        result.innerHTML = `<div class="empty-state" style="color:var(--danger)">エラー: ${esc(err.message)}</div>`;
+      } finally {
+        btn.disabled = false; btn.textContent = '✨ AIに探してもらう';
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // お気に入り
+    // ══════════════════════════════════════════
+    function loadFavorites() {
+      try { favorites = JSON.parse(localStorage.getItem('yt_favorites') || '[]'); } catch { favorites = []; }
+    }
+    function saveFavorites() { localStorage.setItem('yt_favorites', JSON.stringify(favorites)); }
+    function isFavorite(id) { return favorites.some(f => f.videoId === id); }
+    function toggleFavorite(v) {
+      if (isFavorite(v.videoId)) {
+        favorites = favorites.filter(f => f.videoId !== v.videoId);
+      } else {
+        favorites.unshift({ videoId: v.videoId, title: v.title, channelTitle: v.channelTitle, thumb: v.thumb, addedAt: Date.now() });
+      }
+      saveFavorites();
+      document.querySelectorAll(`.vcard[data-id="${v.videoId}"] .fav-btn`).forEach(b => b.classList.toggle('active', isFavorite(v.videoId)));
+      const modalFav = document.getElementById('detail-fav-btn');
+      if (modalFav && modalFav.dataset.id === v.videoId) modalFav.classList.toggle('active', isFavorite(v.videoId));
+      if (document.getElementById('tab-favorites').classList.contains('active')) renderFavoritesTab();
+    }
+    function renderFavoritesTab() {
+      const el = document.getElementById('tab-favorites');
+      if (!favorites.length) {
+        el.innerHTML = `<div class="empty-state"><div class="emoji">⭐</div>お気に入りはまだありません。動画カードの★ボタンで追加できます。</div>`;
+        return;
+      }
+      el.innerHTML = `<div class="section-title">⭐ お気に入り（${favorites.length}件）</div><div class="grid">${favorites.map(v => vcardHtml(v)).join('')}</div>`;
+      bindCardEvents(el);
+    }
+
+    // ══════════════════════════════════════════
+    // カード / モーダル描画
+    // ══════════════════════════════════════════
+    window.__videoMap = window.__videoMap || {};
+    function vcardHtml(v) {
+      window.__videoMap[v.videoId] = v;
+      return `
+        <div class="vcard" data-id="${v.videoId}">
+          <div class="thumb-wrap">
+            <img src="${esc(v.thumb)}" loading="lazy" alt="">
+            ${v.duration ? `<span class="duration">${fmtDuration(v.duration)}</span>` : ''}
+            <button class="fav-btn ${isFavorite(v.videoId) ? 'active' : ''}" data-favtoggle="${v.videoId}">★</button>
+          </div>
+          <div class="body">
+            <div class="title">${esc(v.title)}</div>
+            <div class="channel">${esc(v.channelTitle || '')}</div>
+            ${v.viewCount ? `<div class="meta">👁 ${fmtNum(v.viewCount)}回視聴</div>` : ''}
+            ${v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : ''}
+          </div>
+        </div>`;
+    }
+
+    function bindCardEvents(root) {
+      root.querySelectorAll('.fav-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const card = e.target.closest('.vcard');
+          const v = findVideoById(card.dataset.id);
+          if (v) toggleFavorite(v);
+        });
+      });
+      root.querySelectorAll('.vcard').forEach(card => {
+        card.addEventListener('click', () => {
+          const v = findVideoById(card.dataset.id);
+          if (v) openDetail(v);
+        });
+      });
+    }
+
+    function findVideoById(id) {
+      return window.__videoMap?.[id] || favorites.find(f => f.videoId === id) || null;
+    }
+
+    function openDetail(v) {
+      document.getElementById('detail-iframe').src = `https://www.youtube.com/embed/${v.videoId}?autoplay=1`;
+      const body = document.getElementById('detail-body');
+      body.innerHTML = `
+        <h2>${esc(v.title)}</h2>
+        <div class="channel-line">${esc(v.channelTitle || '')}</div>
+        <div class="meta-line">${v.viewCount ? fmtNum(v.viewCount) + '回視聴　' : ''}${v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('ja-JP') : ''}</div>
+        <div class="desc" id="detail-desc">${esc(v.description || '説明はありません')}</div>
+        <span class="desc-toggle" id="detail-desc-toggle">もっと見る</span>
+        <div class="modal-actions">
+          <button class="btn-outline ${isFavorite(v.videoId) ? 'active' : ''}" id="detail-fav-btn" data-id="${v.videoId}">★ お気に入り</button>
+          <a class="btn-outline" href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank">YouTubeで開く ↗</a>
+        </div>
+      `;
+      document.getElementById('detail-desc-toggle').onclick = () => {
+        const d = document.getElementById('detail-desc');
+        d.classList.toggle('expanded');
+        document.getElementById('detail-desc-toggle').textContent = d.classList.contains('expanded') ? '閉じる' : 'もっと見る';
+      };
+      document.getElementById('detail-fav-btn').onclick = () => toggleFavorite(v);
+      document.getElementById('detail-overlay').classList.add('show');
+    }
+    function closeDetail() {
+      document.getElementById('detail-overlay').classList.remove('show');
+      document.getElementById('detail-iframe').src = '';
+    }
+
+    // ══════════════════════════════════════════
+    // 設定
+    // ══════════════════════════════════════════
+    function openSettings() {
+      document.getElementById('claude-key-input').value = localStorage.getItem('claude_api_key') || '';
+      document.getElementById('settings-overlay').classList.add('show');
+    }
+    function closeSettings() { document.getElementById('settings-overlay').classList.remove('show'); }
+    function saveSettings() {
+      const ck = document.getElementById('claude-key-input').value.trim();
+      if (ck) { localStorage.setItem('claude_api_key', ck); claudeKey = ck; }
+      closeSettings();
+      showToast('設定を保存しました');
+    }
+
+    // ══════════════════════════════════════════
+    // タブ切替 / 初期化
+    // ══════════════════════════════════════════
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById(`tab-${name}`).classList.add('active');
+      document.getElementById('discover-subheader').style.display = name === 'discover' ? 'flex' : 'none';
+      if (name === 'favorites') renderFavoritesTab();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      claudeKey = localStorage.getItem('claude_api_key') || '';
+      loadFavorites();
+
+      document.getElementById('login-btn').addEventListener('click', login);
+      document.getElementById('user-avatar').addEventListener('click', logout);
+      document.getElementById('logout-btn').addEventListener('click', logout);
+      document.getElementById('settings-btn').addEventListener('click', openSettings);
+      document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
+      document.getElementById('settings-overlay').addEventListener('click', (e) => { if (e.target.id === 'settings-overlay') closeSettings(); });
+      document.getElementById('detail-overlay').addEventListener('click', (e) => { if (e.target.id === 'detail-overlay') closeDetail(); });
+      document.getElementById('detail-close').addEventListener('click', closeDetail);
+      document.getElementById('refresh-discover-btn').addEventListener('click', () => runDiscoveryFlow(true));
+      document.getElementById('ai-search-btn').addEventListener('click', doAiSearch);
+      document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDetail(); closeSettings(); } });
+
+      const gisReady = setInterval(() => {
+        if (window.google?.accounts?.oauth2) {
+          clearInterval(gisReady);
+          initGis();
+          if (restoreSession()) { onLoginSuccess(); }
+        }
+      }, 100);
+    });
+  </script>
+</body>
+</html>
