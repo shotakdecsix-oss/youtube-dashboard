@@ -263,7 +263,7 @@
       <div class="emoji">🎬</div>
       <h1>YouTube発見</h1>
       <p>いつものおすすめは、実はあなたの登録チャンネルに偏っています。<br>
-         このアプリはあなたの登録チャンネルを分析し、<b>まだ見ていないジャンル</b>から動画を発掘します。AIによる気分ベースの提案も。</p>
+         このアプリはあなたの登録チャンネルを分析し、<b>好きなジャンルのまだ知らないチャンネル</b>を発掘します。AIによる気分ベースの提案も。</p>
       <button class="btn-google" id="login-btn">
         <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.85 2.09-1.8 2.73v2.27h2.92c1.7-1.57 2.68-3.88 2.68-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.17l-2.92-2.27c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.34C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.97 10.72c-.18-.54-.28-1.12-.28-1.72s.1-1.18.28-1.72V4.94H.96C.35 6.17 0 7.55 0 9s.35 2.83.96 4.06l3.01-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.94l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
         Googleでログイン
@@ -355,7 +355,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/07/14 02:20 JST</div>
+  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/09/09 02:01 JST</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
@@ -369,6 +369,8 @@
     const APP_PLAYLIST_TITLE = 'YouTube発見 お気に入り';
     const REGION_OPTIONS = { JP: '日本', US: 'アメリカ', KR: '韓国', GB: 'イギリス', FR: 'フランス', DE: 'ドイツ' };
     const REGION_LANG = { JP: 'ja', US: 'en', KR: 'ko', GB: 'en', FR: 'fr', DE: 'de' };
+    // AI機能で使うモデル。第4引数で呼び出しごとに上書きできる。
+    const CLAUDE_MODEL = 'claude-sonnet-5';
     const QUOTA_COSTS = { search: 100, videos: 1, channels: 1, playlistItems: 1, subscriptions: 1, videoCategories: 1, playlists: 1 };
 
     // スコープを force-ssl に拡張したため、旧スコープのトークンが残っていたら一度だけ再ログインを促す
@@ -617,18 +619,205 @@
 
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
-    // 視聴傾向が薄い（＝新規開拓すべき）カテゴリを選ぶ
-    function pickUnderrepresentedCategories(n = 5) {
-      const all = Object.entries(categoryMap); // [id, title]
-      const scored = all.map(([id, title]) => ({ id, title, count: genreHistogram[id] || 0 }));
-      scored.sort((a, b) => a.count - b.count || Math.random() - 0.5);
-      return scored.slice(0, n);
+    // よく見ているジャンルを優先して選ぶ。
+    // 開拓の軸は「ジャンル」ではなく「チャンネル」——好きな領域の中から、
+    // まだ登録していないチャンネルを掘り当てるのがこのアプリの狙い。
+    // count=0 のカテゴリは自然と末尾に落ちるので、候補が足りない時の予備として機能する。
+    function pickAffinityCategories(n = 5) {
+      const cw = tasteProfile?.categoryWeights || {};
+      const useProfile = Object.keys(cw).length > 0;
+      const all = Object.entries(categoryMap)
+        .map(([id, title]) => ({ id, title, count: useProfile ? (cw[id] || 0) : (genreHistogram[id] || 0) }));
+      all.sort((a, b) => b.count - a.count || Math.random() - 0.5);
+      return all.slice(0, n);
     }
 
-    // 動画の「評価」を推定するスコア（高評価率 × 再生数の対数）で並べ替える
+    // ══════════════════════════════════════════
+    // 嗜好プロファイル
+    // ══════════════════════════════════════════
+    // YouTube Data API は視聴履歴も検索履歴も返さない。
+    // （relatedPlaylists.watchHistory は2016年9月に空リスト化され、2020年9月に
+    //   ドキュメントからも削除。検索履歴を返すエンドポイントは元々存在しない。）
+    // そこで代替として次の4つから嗜好を推定する:
+    //   ① 高評価した動画（LLプレイリスト） … 本人が明示的に押した最も強い意思表示。重み3
+    //   ② 自分で作ったプレイリスト         … 手動キュレーション＝強い意図。重み2
+    //   ③ 登録チャンネルのジャンル分布     … 弱いが広い基礎シグナル。重み1
+    //   ④ アプリ内の行動ログ               … 開いた/★した動画・AI検索の気分テキスト。重み0.5
+    const TASTE_CACHE_KEY = 'yt_taste_profile';
+    const TASTE_TTL = 24 * 60 * 60 * 1000;
+    const SIGNAL_KEY = 'yt_local_signals';
+
+    let tasteProfile = null; // {categoryWeights, keywordWeights, likedChannelIds, stats}
+
+    // ── アプリ内で観測した行動（初回は空。使うほど効いてくる） ──
+    function loadLocalSignals() {
+      try { return JSON.parse(localStorage.getItem(SIGNAL_KEY) || '{}'); } catch { return {}; }
+    }
+    let localSignals = loadLocalSignals();
+
+    function recordSignal(kind, { text = '', tags = [], categoryId = '' } = {}) {
+      const w = { open: 1, fav: 3, query: 2 }[kind] || 1;
+      localSignals.keywords = localSignals.keywords || {};
+      localSignals.categories = localSignals.categories || {};
+      extractKeywords(text, tags).forEach(k => { localSignals.keywords[k] = (localSignals.keywords[k] || 0) + w; });
+      if (categoryId) localSignals.categories[categoryId] = (localSignals.categories[categoryId] || 0) + w;
+      const ks = Object.entries(localSignals.keywords);
+      if (ks.length > 400) { // 語彙が肥大したら弱いものから捨てる
+        ks.sort((a, b) => b[1] - a[1]);
+        localSignals.keywords = Object.fromEntries(ks.slice(0, 300));
+      }
+      localSignals.updatedAt = Date.now();
+      try { localStorage.setItem(SIGNAL_KEY, JSON.stringify(localSignals)); } catch {}
+    }
+
+    // 日本語は分かち書きされないので形態素解析なしに正確な単語分割はできない。
+    // 「作者が付けたタグ」は既に単語として切れているのでこれを最優先の語彙源とし、
+    // タイトルからはカタカナ連続・漢字2〜4文字・英数字だけを拾う簡易抽出で補う。
+    const STOPWORDS = new Set(['こと','もの','ため','それ','これ','ところ','とき','今回','自分','本当','世界','人気','動画','公式','最新','紹介','解説','まとめ','必見','完全','最強','the','and','for','you','with','how','video','official','shorts','full','new','live']);
+    function extractKeywords(text = '', tags = []) {
+      const out = new Set();
+      (tags || []).forEach(t => {
+        const w = String(t).trim().toLowerCase();
+        if (w.length >= 2 && w.length <= 20 && !STOPWORDS.has(w)) out.add(w);
+      });
+      const t = String(text || '');
+      [/[ァ-ヶー]{3,12}/g, /[一-龥]{2,4}/g, /[A-Za-z][A-Za-z0-9]{2,15}/g].forEach(re => {
+        (t.match(re) || []).forEach(m => { const w = m.toLowerCase(); if (!STOPWORDS.has(w)) out.add(w); });
+      });
+      return [...out];
+    }
+
+    async function fetchPlaylistVideoIds(pid) {
+      const data = await ytFetch('playlistItems', { part: 'contentDetails', playlistId: pid, maxResults: 50 });
+      return (data.items || []).map(i => i.contentDetails?.videoId).filter(Boolean);
+    }
+
+    async function fetchVideoSnippets(ids) {
+      const out = [];
+      for (let i = 0; i < ids.length; i += 50) { // videos.list は1回50件までかつ1ユニット
+        const data = await ytFetch('videos', { part: 'snippet', id: ids.slice(i, i + 50).join(',') });
+        (data.items || []).forEach(v => out.push({
+          categoryId: v.snippet?.categoryId || '', channelId: v.snippet?.channelId || '',
+          title: v.snippet?.title || '', tags: v.snippet?.tags || [],
+        }));
+      }
+      return out;
+    }
+
+    function restoreTasteProfile() {
+      try {
+        const c = JSON.parse(localStorage.getItem(TASTE_CACHE_KEY) || 'null');
+        if (c) { tasteProfile = { ...c, likedChannelIds: new Set(c.likedChannelIdList || []) }; return true; }
+      } catch {}
+      return false;
+    }
+
+    async function buildTasteProfile(force = false) {
+      if (!force && restoreTasteProfile() && Date.now() - (tasteProfile.timestamp || 0) < TASTE_TTL) return tasteProfile;
+
+      const catRaw = {}, kwRaw = {};
+      const likedChannelIds = new Set();
+      const stats = { liked: 0, playlist: 0, subs: subscriptions.length };
+      const addVideo = (v, weight) => {
+        if (v.categoryId) catRaw[v.categoryId] = (catRaw[v.categoryId] || 0) + weight;
+        if (v.channelId) likedChannelIds.add(v.channelId);
+        extractKeywords(v.title, v.tags).forEach(k => { kwRaw[k] = (kwRaw[k] || 0) + weight; });
+      };
+
+      // ① 高評価動画
+      try {
+        const me = await ytFetch('channels', { part: 'contentDetails', mine: 'true' });
+        const likesId = me.items?.[0]?.contentDetails?.relatedPlaylists?.likes;
+        if (likesId) {
+          const vids = await fetchVideoSnippets(await fetchPlaylistVideoIds(likesId));
+          vids.forEach(v => addVideo(v, 3));
+          stats.liked = vids.length;
+        }
+      } catch (e) { console.warn('liked videos unavailable', e.message); }
+
+      // ② 自作プレイリスト（全部読むとクォータが嵩むので上位3件、アプリ専用プレイリストは除く）
+      try {
+        const pls = await ytFetch('playlists', { part: 'snippet', mine: 'true', maxResults: 10 });
+        for (const pl of (pls.items || []).filter(p => p.id !== playlistId).slice(0, 3)) {
+          const ids = await fetchPlaylistVideoIds(pl.id);
+          if (!ids.length) continue;
+          const vids = await fetchVideoSnippets(ids);
+          vids.forEach(v => addVideo(v, 2));
+          stats.playlist += vids.length;
+        }
+      } catch (e) { console.warn('own playlists unavailable', e.message); }
+
+      // ③ 登録チャンネル由来のジャンル分布
+      Object.entries(genreHistogram).forEach(([c, n]) => { catRaw[c] = (catRaw[c] || 0) + n; });
+      // ④ アプリ内の行動ログ
+      Object.entries(localSignals.categories || {}).forEach(([c, n]) => { catRaw[c] = (catRaw[c] || 0) + n * 0.5; });
+      Object.entries(localSignals.keywords || {}).forEach(([k, n]) => { kwRaw[k] = (kwRaw[k] || 0) + n * 0.5; });
+
+      const norm = obj => {
+        const max = Math.max(0, ...Object.values(obj));
+        if (!max) return {};
+        const o = {}; Object.entries(obj).forEach(([k, v]) => { o[k] = v / max; }); return o;
+      };
+      // 語彙は上位300語に絞る（照合コストとノイズの抑制）
+      const kwTop = Object.fromEntries(Object.entries(kwRaw).sort((a, b) => b[1] - a[1]).slice(0, 300));
+
+      tasteProfile = {
+        timestamp: Date.now(), categoryWeights: norm(catRaw), keywordWeights: norm(kwTop),
+        likedChannelIds, likedChannelIdList: [...likedChannelIds], stats,
+      };
+      try { localStorage.setItem(TASTE_CACHE_KEY, JSON.stringify(tasteProfile)); } catch {}
+      return tasteProfile;
+    }
+
+    // ── 合成スコア：品質35% × カテゴリ一致30% × キーワード一致25% × 新しさ10% ──
+    const SCORE_WEIGHTS = { quality: 0.35, category: 0.30, keyword: 0.25, freshness: 0.10 };
+
+    function keywordOverlap(v) {
+      const kw = tasteProfile?.keywordWeights || {};
+      if (!Object.keys(kw).length) return 0;
+      let s = 0;
+      extractKeywords(v.title, v.tags || []).forEach(k => { s += kw[k] || 0; });
+      return s;
+    }
+
+    function matchedWords(v) { // 「なぜ薦めたか」の表示用
+      const kw = tasteProfile?.keywordWeights || {};
+      return extractKeywords(v.title, v.tags || []).filter(w => kw[w]).sort((a, b) => kw[b] - kw[a]).slice(0, 3);
+    }
+
+    function freshnessScore(v) {
+      if (!v.publishedAt) return 0;
+      const days = (Date.now() - new Date(v.publishedAt).getTime()) / 86400000;
+      return Math.exp(-Math.max(0, days) / 30); // 30日で約0.37に減衰
+    }
+
+    // 指標ごとにスケールが揃わないため、候補集合の中で相対正規化する。
+    // 固定閾値で丸めるとカテゴリごとに有利不利が出てしまう。
+    function annotateMatchScores(videos) {
+      if (!videos.length) return videos;
+      const q = videos.map(scoreVideo), k = videos.map(keywordOverlap);
+      const maxQ = Math.max(...q) || 1, maxK = Math.max(...k) || 1;
+      const cw = tasteProfile?.categoryWeights || {};
+      videos.forEach((v, i) => {
+        const parts = {
+          quality: q[i] / maxQ, category: cw[v.categoryId] || 0,
+          keyword: k[i] / maxK, freshness: freshnessScore(v),
+        };
+        v._parts = parts;
+        v._match = SCORE_WEIGHTS.quality * parts.quality + SCORE_WEIGHTS.category * parts.category
+                 + SCORE_WEIGHTS.keyword * parts.keyword + SCORE_WEIGHTS.freshness * parts.freshness;
+        v._matchedWords = matchedWords(v);
+      });
+      return videos;
+    }
+
+    // 動画の「評価」を推定するスコア。
+    // likeRatio をそのまま掛けると 0.001〜0.1 の100倍レンジが対数項(3〜8, 2.7倍)を圧倒し、
+    // 実質「高評価率オンリー」になって小規模動画ばかりが上位に来ていた。
+    // sqrt で高評価率の支配を弱め、再生数（実績）が効くようにしている。
     function scoreVideo(v) {
       const likeRatio = v.viewCount > 0 ? v.likeCount / v.viewCount : 0;
-      return likeRatio * Math.log10(v.viewCount + 10);
+      return Math.sqrt(likeRatio) * Math.log10(v.viewCount + 10);
     }
 
     function durationSeconds(iso) {
@@ -645,6 +834,7 @@
         videoId: v.id, title: v.snippet.title, channelTitle: v.snippet.channelTitle,
         channelId: v.snippet.channelId, thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.default?.url || '',
         publishedAt: v.snippet.publishedAt, viewCount, likeCount,
+        categoryId: v.snippet.categoryId || '', tags: v.snippet.tags || [],
         likeRatio: viewCount > 0 ? likeCount / viewCount : 0,
         duration, durationSec: durSec, isShort: durSec > 0 && durSec <= 60,
         description: v.snippet.description || '',
@@ -664,7 +854,8 @@
         videoCategoryId: categoryId, regionCode, maxResults: 25,
       });
       let videos = applyExclusions((data.items || []).map(mapVideoItem)).filter(v => v.viewCount >= 100);
-      videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
+      annotateMatchScores(videos);
+      videos.sort((a, b) => b._match - a._match);
       return videos.slice(0, 8);
     }
 
@@ -674,14 +865,15 @@
         part: 'snippet,statistics,contentDetails', chart: 'mostPopular', regionCode, maxResults: 25,
       });
       let videos = applyExclusions((data.items || []).map(mapVideoItem)).filter(v => v.viewCount >= 100);
-      videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
+      annotateMatchScores(videos);
+      videos.sort((a, b) => b._match - a._match);
       return videos.slice(0, 12);
     }
 
     // ══════════════════════════════════════════
     // 新規開拓フロー
     // ══════════════════════════════════════════
-    const DISCOVERY_CACHE_VERSION = 5; // ロジック更新時にインクリメントして古いキャッシュを無効化する
+    const DISCOVERY_CACHE_VERSION = 7; // ロジック更新時にインクリメントして古いキャッシュを無効化する
 
     async function runDiscoveryFlow(force = false) {
       const statusEl = document.getElementById('discover-status');
@@ -691,6 +883,7 @@
           const cached = JSON.parse(cacheRaw);
           if (cached.version === DISCOVERY_CACHE_VERSION && cached.regionCode === regionCode && Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
             discoveryCache = cached;
+            restoreTasteProfile();
             genreHistogram = cached.genreHistogram || {};
             categoryMap = cached.categoryMap || {};
             subscriptions = cached.subscriptions || subscriptions;
@@ -714,9 +907,12 @@
         statusEl.textContent = `視聴傾向を分析中... (${subscriptions.length}チャンネル中サンプリング)`;
         genreHistogram = await buildGenreHistogram(subscriptions);
 
-        statusEl.textContent = '新規開拓カテゴリの動画を探索中...';
+        statusEl.textContent = '高評価・プレイリストから嗜好を推定中...';
+        await buildTasteProfile(force);
+
+        statusEl.textContent = 'よく見るジャンルの未登録チャンネルを探索中...';
         // 一部カテゴリは結果が空になることがあるため、多めに候補を用意して最大5ジャンル分集める
-        const targets = pickUnderrepresentedCategories(Math.min(10, Object.keys(categoryMap).length));
+        const targets = pickAffinityCategories(Math.min(10, Object.keys(categoryMap).length));
         const groups = [];
         const errors = [];
         for (const t of targets) {
@@ -751,7 +947,7 @@
         discoveryCache = { version: DISCOVERY_CACHE_VERSION, timestamp: Date.now(), groups, genreHistogram, categoryMap, subscriptions, errors, regionCode };
         localStorage.setItem('yt_discovery_cache', JSON.stringify(discoveryCache));
 
-        statusEl.textContent = `${subscriptions.length}件の登録チャンネルを分析 → ${groups.length}ジャンルから新規開拓を提案`;
+        statusEl.textContent = `${subscriptions.length}件の登録チャンネルを分析 → ${groups.length}ジャンルの未登録チャンネルを提案`;
         renderDiscoverTab();
         renderChannelsTab();
       } catch (e) {
@@ -761,7 +957,7 @@
     }
 
     // ── 並べ替え・フィルタ状態（新規開拓／お気に入り共通） ──
-    let discoverSort = localStorage.getItem('yt_discover_sort') || 'score';
+    let discoverSort = localStorage.getItem('yt_discover_sort') || 'match';
     let discoverCategoryFilter = new Set();
     let durationFilter = localStorage.getItem('yt_duration_filter') || 'all'; // all/short/normal（全タブ共通）
     let aiVideoInsights = {}; // videoId -> {reason, score}（概要文を読んだAIの一言コメント）
@@ -785,9 +981,10 @@
       if (mode === 'date') return new Date(v.publishedAt || 0).getTime();
       if (mode === 'views') return v.viewCount || 0;
       if (mode === 'ai') return aiVideoInsights[v.videoId]?.score ?? -1;
-      return scoreVideo(v); // 'score' = 評価順（高評価率×再生数）
+      if (mode === 'match') return v._match ?? -1;
+      return scoreVideo(v); // 'score' = 評価順（√高評価率 × 再生数の対数）
     }
-    const SORT_LABELS = { score: '評価順', date: '新着順', views: '再生数順', ai: 'AIおすすめ順' };
+    const SORT_LABELS = { match: 'おすすめ順', score: '評価順', date: '新着順', views: '再生数順', ai: 'AIおすすめ順' };
 
     function sortToolbarHtml(selectId, chips, currentSort, activeFilterSet) {
       return `
@@ -802,6 +999,19 @@
           </select>
           ${chips.length ? `<div class="chip-row">${chips.map(c => `<button class="chip ${activeFilterSet.has(c) ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
         </div>`;
+    }
+
+    // プロファイルが何を根拠にしているかを可視化する（信頼できないと調整しようがないため）
+    function tasteBasisText() {
+      const st = tasteProfile?.stats;
+      if (!st) return 'よく見るジャンルの、まだ登録していないチャンネルから発掘';
+      const src = [];
+      if (st.liked) src.push(`高評価${st.liked}本`);
+      if (st.playlist) src.push(`プレイリスト${st.playlist}本`);
+      if (st.subs) src.push(`登録${st.subs}ch`);
+      const kw = Object.keys(tasteProfile.keywordWeights || {}).length;
+      if (!src.length) return 'よく見るジャンルの、まだ登録していないチャンネルから発掘';
+      return `${src.join('・')}から嗜好を推定（語彙${kw}語）・未登録チャンネルのみ`;
     }
 
     function renderDiscoverTab() {
@@ -831,7 +1041,7 @@
         <div class="toolbar" style="margin-top:-4px;">
           <button class="btn-outline" id="discover-ai-btn">${aiBtnLabel}</button>
         </div>
-        <div class="section-desc">${all.length}件 ・ あなたの登録チャンネルではあまり見かけないジャンルから発掘</div>
+        <div class="section-desc">${all.length}件 ・ ${esc(tasteBasisText())}</div>
         <div class="grid">${all.map(v => vcardHtml(v)).join('')}</div>
       `;
       bindCardEvents(el);
@@ -905,7 +1115,7 @@
     // ══════════════════════════════════════════
     // AIで探す
     // ══════════════════════════════════════════
-    async function callClaude(system, userMsg, maxTokens = 700) {
+    async function callClaude(system, userMsg, maxTokens = 700, model = CLAUDE_MODEL) {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -915,7 +1125,7 @@
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
+          model,
           max_tokens: maxTokens,
           system,
           messages: [{ role: 'user', content: userMsg }],
@@ -941,7 +1151,7 @@ ${contextPrompt}
 各動画について、一言コメント（reason、日本語20〜25字程度、概要文の内容も踏まえること）と、おすすめ度スコア（score、0〜100の整数）を付けてください。
 必ず入力と同じ id を使い、以下のJSON配列のみを返してください（説明文・マークダウン不要）:
 [{"id":"動画ID","reason":"一言コメント","score":85}]`;
-      const text = await callClaude(sysPrompt, JSON.stringify(payload), 2000);
+      const text = await callClaude(sysPrompt, JSON.stringify(payload), 4000);
       const clean = text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '');
       const arr = JSON.parse(clean);
       const map = {};
@@ -953,6 +1163,7 @@ ${contextPrompt}
       if (!claudeKey) { showToast('Claude APIキーを設定してください'); openSettings(); return; }
       const mood = document.getElementById('mood-input').value.trim();
       if (!mood) { showToast('気分・興味を入力してください'); return; }
+      recordSignal('query', { text: mood });
 
       const btn = document.getElementById('ai-search-btn');
       const result = document.getElementById('ai-result');
@@ -980,7 +1191,8 @@ ${contextPrompt}
             const vData = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
             let videos = (vData.items || []).map(v => ({ ...mapVideoItem(v), reason: q.reason }))
               .filter(v => !excludedChannels.has(v.channelId));
-            videos.sort((a, b) => scoreVideo(b) - scoreVideo(a));
+            annotateMatchScores(videos);
+            videos.sort((a, b) => b._match - a._match);
             if (videos.length) groups.push({ query: q.query, reason: q.reason, videos });
           } catch (e) { console.warn('ai search query failed', q.query, e.message); }
         }
@@ -1106,8 +1318,10 @@ ${contextPrompt}
           viewCount: v.viewCount || 0, likeCount: v.likeCount || 0, likeRatio: v.likeRatio || 0,
           publishedAt: v.publishedAt || '', duration: v.duration || '', durationSec: v.durationSec || 0, isShort: !!v.isShort,
           description: v.description || '',
+          categoryId: v.categoryId || '', tags: v.tags || [],
           addedAt: Date.now(),
         });
+        recordSignal('fav', { text: v.title, tags: v.tags, categoryId: v.categoryId });
         syncFavoriteToPlaylist(v);
       }
       saveFavorites();
@@ -1170,7 +1384,7 @@ ${contextPrompt}
             <div class="title">${esc(v.title)}</div>
             <div class="channel">${esc(v.channelTitle || '')}</div>
             ${v.viewCount ? `<div class="meta">👁 ${fmtNum(v.viewCount)}回視聴${v.likeRatio ? ` ・ 👍 ${(v.likeRatio * 100).toFixed(1)}%` : ''}</div>` : ''}
-            ${aiVideoInsights[v.videoId] ? `<div class="reason">🤖 ${esc(aiVideoInsights[v.videoId].reason)}</div>` : (v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : (v.tag ? `<div class="reason">🏷 ${esc(v.tag)}</div>` : ''))}
+            ${aiVideoInsights[v.videoId] ? `<div class="reason">🤖 ${esc(aiVideoInsights[v.videoId].reason)}</div>` : (v.reason ? `<div class="reason">💡 ${esc(v.reason)}</div>` : (v._matchedWords?.length ? `<div class="reason">🎯 ${esc(v._matchedWords.join('・'))}</div>` : (v.tag ? `<div class="reason">🏷 ${esc(v.tag)}</div>` : '')))}
           </div>
         </div>`;
     }
@@ -1222,6 +1436,7 @@ ${contextPrompt}
     }
 
     function openDetail(v) {
+      recordSignal('open', { text: v.title, tags: v.tags, categoryId: v.categoryId });
       document.getElementById('detail-iframe').src = `https://www.youtube.com/embed/${v.videoId}?autoplay=1`;
       const body = document.getElementById('detail-body');
       body.innerHTML = `
