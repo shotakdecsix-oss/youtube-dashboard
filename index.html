@@ -355,7 +355,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/09/09 02:01 JST</div>
+  <div id="deploy-tag" style="position:fixed;bottom:6px;left:8px;font-size:.62rem;color:var(--text2);opacity:.45;z-index:1;pointer-events:none;">deploy: 2026/09/09 13:33 JST</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
@@ -1115,7 +1115,12 @@
     // ══════════════════════════════════════════
     // AIで探す
     // ══════════════════════════════════════════
-    async function callClaude(system, userMsg, maxTokens = 700, model = CLAUDE_MODEL) {
+    // Sonnet 5 / Opus 5 は thinking がデフォルトで有効で、content[0] に thinking ブロックが入る
+    // （display は omitted なので中身は空、署名のみ）。テキストは content[1] に来る。
+    // ここでの用途は「短い定型JSONを返させる」だけなので思考は不要なうえ、thinking トークンは
+    // max_tokens を消費するためJSONが途中で切れる事故につながる。よって既定で無効化する。
+    // opts.thinking を渡せば呼び出しごとに有効化できる。
+    async function callClaude(system, userMsg, maxTokens = 700, opts = {}) {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -1125,15 +1130,21 @@
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model,
+          model: opts.model || CLAUDE_MODEL,
           max_tokens: maxTokens,
+          thinking: opts.thinking || { type: 'disabled' },
           system,
           messages: [{ role: 'user', content: userMsg }],
         }),
       });
       const d = await res.json();
-      if (d.error) throw new Error(d.error.message);
-      return d.content[0].text.trim();
+      if (d.error) throw new Error(d.error.message || 'Claude APIエラー');
+      // モデルによって content の並びが変わるため、添字ではなく type で探す
+      const textBlock = (d.content || []).find(b => b.type === 'text');
+      if (!textBlock) throw new Error('Claudeの応答にテキストがありません');
+      // 途中で切れたJSONは JSON.parse が意味不明な例外を出すので、ここで明示的に落とす
+      if (d.stop_reason === 'max_tokens') throw new Error('応答が長すぎて途中で切れました（max_tokens不足）');
+      return textBlock.text.trim();
     }
 
     // 候補動画をまとめて1回のリクエストで送り、概要文まで読んだ一言コメント＋スコアを取得する。
